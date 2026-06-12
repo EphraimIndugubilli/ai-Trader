@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pear Trader — AI Pipeline Monitor</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+<div id="app">
+
+  <!-- ── TOPBAR ── -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <span class="logo">🍐 Pear Trader</span>
+      <span class="badge paper">PAPER MODE</span>
+      <span class="model-badge" id="model-badge">claude-sonnet-4-6 via OpenRouter</span>
+    </div>
+    <div class="topbar-right">
+      <div class="stat-pill"><span class="pill-label">Portfolio</span><span class="pill-value" id="h-portfolio">$10,000</span></div>
+      <div class="stat-pill"><span class="pill-label">Total P&L</span><span class="pill-value" id="h-pnl">$0.00</span></div>
+      <div class="stat-pill"><span class="pill-label">Win Rate</span><span class="pill-value" id="h-winrate">—</span></div>
+      <button class="btn-reset" id="btn-reset">↺ Reset</button>
+    </div>
+  </header>
+
+  <div class="main-grid" style="grid-template-columns:220px 1fr 220px 280px;">
+
+    <!-- LEFT: Markets + Chart -->
+    <div class="col-left">
+      <div class="panel">
+        <div class="panel-head"><span>Hyperliquid Perps</span><span class="live-dot"></span></div>
+        <div id="market-list"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><span id="chart-title">BTC-PERP</span>
+          <div class="chart-tabs">
+            <button class="ct active">1m</button>
+            <button class="ct">5m</button>
+          </div>
+        </div>
+        <div class="chart-wrap"><canvas id="priceChart" role="img" aria-label="Price chart"></canvas></div>
+        <div class="indicator-bar" id="indicator-bar"></div>
+      </div>
+    </div>
+
+    <!-- CENTER: AI Brain + Order Form -->
+    <div class="col-center">
+      <div class="panel ai-panel">
+        <div class="panel-head">
+          <span>🤖 AI Brain — OpenRouter Pipeline</span>
+          <div class="ai-controls">
+            <span id="ai-status-badge" class="badge idle">IDLE</span>
+            <button class="btn-ai" id="btn-ai-toggle">Start AI</button>
+          </div>
+        </div>
+        <div class="ai-think-box" id="ai-think-box">
+          <div class="think-placeholder">Start AI to begin autonomous Hyperliquid perp trading…</div>
+        </div>
+        <div class="ai-signal-row" id="ai-signal-row" style="display:none;">
+          <div class="signal-block" id="sig-action">—</div>
+          <div class="signal-block" id="sig-confidence">—</div>
+          <div class="signal-block" id="sig-target">—</div>
+          <div class="signal-block" id="sig-stop">—</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><span>Manual Order</span><span id="order-pair-label" class="muted">BTC-PERP</span></div>
+        <div class="order-form">
+          <div class="side-tabs">
+            <button class="side-tab active-buy" id="tab-buy" onclick="setAction('buy')">BUY / LONG</button>
+            <button class="side-tab" id="tab-sell" onclick="setAction('sell')">SELL / SHORT</button>
+          </div>
+          <div class="price-display" id="current-price-display">$ —</div>
+          <div id="perp-info-row" style="display:flex;gap:12px;padding:4px 0;font-size:10px;color:#6b7280;"></div>
+          <div class="form-field"><label>Amount (USDT)</label>
+            <div class="input-row"><input type="number" id="f-amount" placeholder="100" /><span class="suffix">USDT</span></div>
+          </div>
+          <div class="pct-row">
+            <button onclick="setPct(0.25)">25%</button><button onclick="setPct(0.5)">50%</button>
+            <button onclick="setPct(0.75)">75%</button><button onclick="setPct(1)">100%</button>
+          </div>
+          <div class="form-row-2">
+            <div class="form-field"><label>Stop Loss</label>
+              <div class="input-row"><input type="number" id="f-sl" placeholder="Optional" /><span class="suffix">$</span></div>
+            </div>
+            <div class="form-field"><label>Take Profit</label>
+              <div class="input-row"><input type="number" id="f-tp" placeholder="Optional" /><span class="suffix">$</span></div>
+            </div>
+          </div>
+          <button class="btn-place buy" id="btn-place" onclick="placeManualOrder()">Buy BTC-PERP</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT-CENTER: Metrics + Positions + Equity -->
+    <div class="col-right" style="border-right:1px solid #1f2130;">
+      <div class="metrics-grid">
+        <div class="metric-card"><div class="mc-label">Balance</div><div class="mc-val" id="m-balance">$10,000</div></div>
+        <div class="metric-card"><div class="mc-label">Unrealized P&L</div><div class="mc-val" id="m-upnl">$0.00</div></div>
+        <div class="metric-card"><div class="mc-label">Open</div><div class="mc-val" id="m-open">0</div></div>
+        <div class="metric-card"><div class="mc-label">Closed</div><div class="mc-val" id="m-closed">0</div></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><span>Positions</span><span class="muted" id="pos-count">0</span></div>
+        <div id="positions-list" class="positions-list"><div class="empty-msg">No open positions</div></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><span>Equity Curve</span></div>
+        <div style="position:relative;height:110px;padding:6px 10px;">
+          <canvas id="equityChart" role="img" aria-label="Equity curve"></canvas>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><span>Trade Log</span><span class="muted" id="log-count">0</span></div>
+        <div id="trade-log" class="trade-log"><div class="empty-msg">No trades</div></div>
+      </div>
+    </div>
+
+    <!-- FAR RIGHT: Langfuse Monitor Panel -->
+    <div class="col-right">
+      <div class="panel monitor-panel">
+        <div class="panel-head">
+          <span>🔍 Langfuse Monitor</span>
+          <button onclick="downloadReport()" style="font-size:10px;padding:2px 8px;border-radius:4px;border:1px solid #2a2d3e;background:transparent;color:#6b7280;cursor:pointer;">⬇ Report</button>
+        </div>
+        <div style="padding:8px 14px;border-bottom:1px solid #1f2130;">
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+            <span style="font-size:10px;color:#6b7280;">Pipeline errors</span>
+            <span style="font-size:13px;font-weight:600;color:#f87171;" id="mon-errors">0</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+            <span style="font-size:10px;color:#6b7280;">Hallucinations caught</span>
+            <span style="font-size:13px;font-weight:600;color:#f59e0b;" id="mon-halluc">0</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;">
+            <span style="font-size:10px;color:#6b7280;">API calls made</span>
+            <span style="font-size:13px;font-weight:600;color:#34d399;" id="mon-calls">0</span>
+          </div>
+        </div>
+        <div class="panel-head" style="margin-top:0;"><span>Recent Traces</span></div>
+        <div id="traces-list" style="max-height:180px;overflow-y:auto;">
+          <div class="empty-msg">No traces yet</div>
+        </div>
+        <div class="panel-head"><span>Pipeline Errors</span></div>
+        <div id="errors-list" style="max-height:160px;overflow-y:auto;">
+          <div class="empty-msg">No errors — pipeline clean ✓</div>
+        </div>
+        <div class="panel-head"><span>Recent Spans</span></div>
+        <div id="spans-list" style="max-height:150px;overflow-y:auto;">
+          <div class="empty-msg">No spans yet</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────
+let selectedPair = 'BTC-PERP';
+let action = 'buy';
+let priceChart = null, equityChart = null;
+let marketData = {}, portfolioData = {};
+let aiRunning = false;
+let monStats = { errors: 0, hallucinations: 0, calls: 0 };
+
+// ── SSE connection ─────────────────────────────────────────────────
+const evtSource = new EventSource('/api/stream');
+
+evtSource.addEventListener('connected', () => {
+  toast('Connected to pipeline stream', 'info');
+});
+
+evtSource.addEventListener('tick', e => {
+  const d = JSON.parse(e.data);
+  marketData.prices = d.prices;
+  portfolioData.snapshot = d.snapshot;
+  renderMetrics(d.snapshot);
+  renderMarketList();
+  renderCurrentPrice();
+  if (priceChart) fetchAndUpdateChart();
+  renderEquityChart();
+});
+
+evtSource.addEventListener('think', e => {
+  const step = JSON.parse(e.data);
+  appendThinkLine(step.text, step.type);
+  // Count calls and hallucinations
+  if (step.type === 'exec' || step.text.includes('Calling AI')) {
+    monStats.calls++;
+    document.getElementById('mon-calls').textContent = monStats.calls;
+  }
+  if (step.text.includes('Hallucination')) {
+    monStats.hallucinations++;
+    document.getElementById('mon-halluc').textContent = monStats.hallucinations;
+  }
+});
+
+evtSource.addEventListener('stop_hit', e => {
+  const { trade, reason } = JSON.parse(e.data);
+  const label = reason === 'take_profit' ? '✅ Take Profit' : reason === 'liquidation' ? '💥 Liquidated' : '🛑 Stop Loss';
+  toast(`${label}: ${trade.name} ${trade.pnl >= 0 ? '+' : ''}$${trade.pnl.toFixed(2)}`,
+    trade.pnl >= 0 ? 'success' : 'error');
+  fetchPortfolio();
+});
+
+evtSource.addEventListener('ai_status', e => {
+  const { running } = JSON.parse(e.data);
+  aiRunning = running;
+  updateAIStatusUI(running);
+});
+
+// ── API helpers ────────────────────────────────────────────────────
+async function api(path, opts = {}) {
+  const r = await fetch(path, opts);
+  return r.json();
+}
+
+async function fetchMarket() {
+  const r = await api('/api/market');
+  if (r.ok) { marketData = r.data; renderMarketList(); }
+}
+
+async function fetchPortfolio() {
+  const r = await api('/api/portfolio');
+  if (r.ok) {
+    portfolioData = r.data;
+    renderMetrics(r.data.snapshot);
+    renderPositions(r.data.positions);
+    renderTradeLog(r.data.closedTrades);
+    renderEquityChartData(r.data.equityHistory);
+  }
+}
+
+async function fetchMonitoring() {
+  const [traces, errors, spans] = await Promise.all([
+    api('/api/monitoring/traces'),
+    api('/api/monitoring/errors'),
+    api('/api/monitoring/spans'),
+  ]);
+  if (traces.ok) renderTraces(traces.data);
+  if (errors.ok) {
+    monStats.errors = errors.data.length;
+    document.getElementById('mon-errors').textContent = monStats.errors;
+    renderErrors(errors.data);
+  }
+  if (spans.ok) renderSpans(spans.data);
+}
+
+async function fetchAndUpdateChart() {
+  const r = await api(`/api/market/${selectedPair}/prices`);
+  if (r.ok && priceChart) {
+    const prices = r.data;
+    const isUp = prices[prices.length-1] >= prices[0];
+    priceChart.data.labels = prices.map((_,i)=>i);
+    priceChart.data.datasets[0].data = prices;
+    priceChart.data.datasets[0].borderColor = isUp ? '#34d399' : '#f87171';
+    priceChart.update('none');
+  }
+  const ri = await api(`/api/market/${selectedPair}/indicators`);
+  if (ri.ok && ri.data) renderIndicatorBar(ri.data);
+}
+
+async function downloadReport() {
+  const r = await fetch('/api/monitoring/report');
+  const text = await r.text();
+  const blob = new Blob([text], { type: 'text/plain' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `triage_report_${new Date().toISOString().slice(0,10)}.txt`;
+  a.click();
+}
+
+// ── AI Controls ────────────────────────────────────────────────────
+document.getElementById('btn-ai-toggle').addEventListener('click', async () => {
+  const endpoint = aiRunning ? '/api/ai/stop' : '/api/ai/start';
+  const r = await api(endpoint, { method: 'POST' });
+  if (r.ok) toast(r.message, 'info');
+});
+
+// ── Manual Order ──────────────────────────────────────────────────
+async function placeManualOrder() {
+  const amount = parseFloat(document.getElementById('f-amount').value);
+  const sl = parseFloat(document.getElementById('f-sl').value) || undefined;
+  const tp = parseFloat(document.getElementById('f-tp').value) || undefined;
+  if (!amount || amount <= 0) { toast('Enter a valid amount', 'error'); return; }
+  const r = await api('/api/order', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ symbol: selectedPair, side: action, amountUSDT: amount, stopLoss: sl, takeProfit: tp }),
+  });
+  if (r.ok) {
+    toast(`${action.toUpperCase()} ${selectedPair} $${amount}`, 'success');
+    document.getElementById('f-amount').value = '';
+    fetchPortfolio();
+  } else {
+    toast(r.error || 'Order failed', 'error');
+  }
+}
+
+async function closePositionById(id) {
+  const r = await api(`/api/order/${id}/close`, { method: 'POST' });
+  if (r.ok) {
+    const t = r.data;
+    toast(`Closed: ${t.pnl >= 0 ? '+' : ''}$${t.pnl.toFixed(2)}`, t.pnl >= 0 ? 'success' : 'info');
+    fetchPortfolio();
+  }
+}
+
+// ── UI Helpers ─────────────────────────────────────────────────────
+function setAction(a) {
+  action = a;
+  document.getElementById('tab-buy').className = 'side-tab' + (a==='buy' ? ' active-buy' : '');
+  document.getElementById('tab-sell').className = 'side-tab' + (a==='sell' ? ' active-sell' : '');
+  const btn = document.getElementById('btn-place');
+  btn.className = `btn-place ${a}`;
+  btn.textContent = `${a==='buy'?'Buy':'Sell'} ${selectedPair}`;
+}
+
+function setPct(pct) {
+  const bal = portfolioData.snapshot?.balance || 10000;
+  document.getElementById('f-amount').value = Math.floor(bal * pct);
+}
+
+function selectPair(symbol) {
+  selectedPair = symbol;
+  document.getElementById('order-pair-label').textContent = symbol;
+  document.getElementById('chart-title').textContent = symbol;
+  setAction(action);
+  renderCurrentPrice();
+  initChart();
+  fetchAndUpdateChart();
+}
+
+function updateAIStatusUI(running) {
+  const badge = document.getElementById('ai-status-badge');
+  const btn = document.getElementById('btn-ai-toggle');
+  badge.textContent = running ? 'ACTIVE' : 'IDLE';
+  badge.className = `badge ${running ? 'trading' : 'idle'}`;
+  btn.textContent = running ? 'Stop AI' : 'Start AI';
+  btn.className = `btn-ai ${running ? 'running' : ''}`;
+}
+
+// ── Render functions ───────────────────────────────────────────────
+function renderMetrics(snap) {
+  if (!snap) return;
+  document.getElementById('h-portfolio').textContent = fmtUSD(snap.portfolioValue);
+  const pnl = snap.totalPnL;
+  const pnlEl = document.getElementById('h-pnl');
+  pnlEl.textContent = (pnl >= 0 ? '+' : '') + fmtUSD(Math.abs(pnl));
+  pnlEl.style.color = pnl >= 0 ? '#34d399' : '#f87171';
+  document.getElementById('h-winrate').textContent = snap.winRate !== null ? snap.winRate + '%' : '—';
+  document.getElementById('m-balance').textContent = fmtUSD(snap.balance);
+  const upnl = snap.unrealizedPnL;
+  const upnlEl = document.getElementById('m-upnl');
+  upnlEl.textContent = (upnl >= 0 ? '+' : '') + fmtUSD(Math.abs(upnl));
+  upnlEl.className = 'mc-val ' + (upnl >= 0 ? 'pos' : 'neg');
+  document.getElementById('m-open').textContent = snap.openPositions;
+  document.getElementById('m-closed').textContent = snap.closedTrades;
+}
+
+function renderMarketList() {
+  const pairs = marketData?.pairs || [];
+  const sel = selectedPair;
+  document.getElementById('market-list').innerHTML = pairs.map(p => {
+    const isUp = p.price >= p.prevPrice;
+    const fr = p.perpInfo?.fundingRate;
+    const frStr = fr !== undefined ? `<span class="${fr >= 0 ? 'funding-pos' : 'funding-neg'}">${(fr*100).toFixed(4)}%</span>` : '';
+    return `<div class="market-row ${p.symbol===sel?'selected':''}" onclick="selectPair('${p.symbol}')">
+      <div>
+        <div class="mr-name">${p.name}<span class="perp-tag">PERP</span></div>
+        <div style="font-size:9px;color:#4b5563;">FR: ${frStr}</div>
+      </div>
+      <div class="mr-right">
+        <div class="mr-price ${isUp?'up':'dn'}">$${fmtPrice(p.price, p.symbol)}</div>
+        <div class="mr-change ${p.change24h>=0?'up':'dn'}">${p.change24h>=0?'+':''}${p.change24h.toFixed(2)}%</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderCurrentPrice() {
+  const pair = (marketData?.pairs || []).find(p => p.symbol === selectedPair);
+  if (!pair) return;
+  const isUp = pair.price >= pair.prevPrice;
+  document.getElementById('current-price-display').textContent = '$' + fmtPrice(pair.price, pair.symbol);
+  document.getElementById('current-price-display').style.color = isUp ? '#34d399' : '#f87171';
+  const perp = pair.perpInfo;
+  if (perp) {
+    document.getElementById('perp-info-row').innerHTML =
+      `<span>Mark: $${perp.markPrice?.toFixed(2)}</span>` +
+      `<span>Index: $${perp.indexPrice?.toFixed(2)}</span>` +
+      `<span class="${perp.fundingRate>=0?'funding-pos':'funding-neg'}">FR: ${(perp.fundingRate*100).toFixed(4)}%/hr</span>`;
+  }
+}
+
+function renderPositions(positions) {
+  const list = document.getElementById('positions-list');
+  document.getElementById('pos-count').textContent = positions?.length || 0;
+  if (!positions?.length) { list.innerHTML = '<div class="empty-msg">No open positions</div>'; return; }
+  list.innerHTML = positions.map(pos => {
+    const curr = (marketData?.pairs || []).find(p=>p.symbol===pos.symbol)?.price || pos.price;
+    const pnl = pos.side === 'buy' ? (curr - pos.price) * pos.qty : (pos.price - curr) * pos.qty;
+    const pct = ((pnl / pos.amountUSDT) * 100).toFixed(2);
+    return `<div class="pos-card">
+      <div>
+        <div class="pos-top">
+          <span class="pos-name">${pos.name}</span>
+          <span class="pos-side ${pos.side}">${pos.side.toUpperCase()}</span>
+          ${pos.source==='ai'?'<span style="font-size:10px;color:#a78bfa;">🤖</span>':''}
+        </div>
+        <div class="pos-details">Entry: $${pos.price} | Now: $${curr.toFixed(2)} | $${pos.amountUSDT.toFixed(0)}</div>
+        <button class="pos-close" onclick="closePositionById('${pos.id}')">Close</button>
+      </div>
+      <div>
+        <div class="pos-pnl ${pnl>=0?'pos':'neg'}">${pnl>=0?'+':''}$${Math.abs(pnl).toFixed(2)}</div>
+        <div class="pos-pct">${pct}%</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderTradeLog(trades) {
+  const el = document.getElementById('trade-log');
+  document.getElementById('log-count').textContent = trades?.length || 0;
+  if (!trades?.length) { el.innerHTML = '<div class="empty-msg">No trades</div>'; return; }
+  el.innerHTML = [...trades].reverse().slice(0, 20).map(t => {
+    const src = t.source === 'ai' ? '<span class="log-source ai">🤖 AI</span>' : '<span class="log-source manual">👤</span>';
+    const pnlStr = `<span class="${t.pnl>=0?'log-buy':'log-sell'}">${t.pnl>=0?'+':''}$${Math.abs(t.pnl).toFixed(2)}</span>`;
+    return `<div class="log-row">
+      <div class="log-msg">CLOSE <span class="log-pair">${t.name}</span> | P&L: ${pnlStr} | ${(t.exitReason||'').replace('_',' ')}</div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;">${src}<span class="log-time">${t.exitTimeStr}</span></div>
+    </div>`;
+  }).join('');
+}
+
+// ── Langfuse Monitor Renders ───────────────────────────────────────
+function renderTraces(traces) {
+  const el = document.getElementById('traces-list');
+  if (!traces?.length) { el.innerHTML = '<div class="empty-msg">No traces yet</div>'; return; }
+  el.innerHTML = traces.slice(0,10).map(t => {
+    const dur = t.durationMs ? `${t.durationMs}ms` : '…';
+    const cls = t.error ? 'err' : 'ok';
+    const time = new Date(t.startTime).toLocaleTimeString();
+    return `<div class="trace-row">
+      <span class="trace-badge ${cls}">${cls.toUpperCase()}</span>
+      <span class="trace-name">${t.name}</span>
+      <span class="trace-dur">${dur}</span>
+    </div>`;
+  }).join('');
+}
+
+function renderErrors(errors) {
+  const el = document.getElementById('errors-list');
+  if (!errors?.length) { el.innerHTML = '<div class="empty-msg">No errors — clean ✓</div>'; return; }
+  el.innerHTML = errors.slice(0,8).map(e => {
+    const time = new Date(e.timestamp).toLocaleTimeString();
+    return `<div class="trace-row" style="flex-direction:column;gap:2px;">
+      <div style="display:flex;gap:6px;align-items:center;">
+        <span class="err-stage">${e.stage}</span>
+        <span style="font-size:9px;color:#4b5563;">${time}</span>
+        <span style="font-size:9px;color:${e.recovered?'#34d399':'#f87171'};">${e.recovered?'recovered':'FATAL'}</span>
+      </div>
+      <div style="font-size:10px;color:#9ca3af;">${e.error.slice(0,80)}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderSpans(spans) {
+  const el = document.getElementById('spans-list');
+  if (!spans?.length) { el.innerHTML = '<div class="empty-msg">No spans yet</div>'; return; }
+  el.innerHTML = spans.slice(0,8).map(s => {
+    const lvl = s.level;
+    const cls = lvl==='ERROR'?'err':lvl==='WARNING'?'warn':'ok';
+    return `<div class="trace-row">
+      <span class="trace-badge ${cls}">${lvl.slice(0,3)}</span>
+      <span class="trace-name">${s.name}</span>
+    </div>`;
+  }).join('');
+}
+
+function renderIndicatorBar(a) {
+  const pills = [
+    { l:'RSI', v: a.rsi?.toFixed(1)||'—', c: a.rsi<30?'bull':a.rsi>70?'bear':'neutral' },
+    { l:'MACD', v: a.macd?(a.macd.histogram>0?'BULL':'BEAR'):'—', c: a.macd?.histogram>0?'bull':'bear' },
+    { l:'BB', v: a.bb?(a.current<a.bb.lower?'BELOW':a.current>a.bb.upper?'ABOVE':'MID'):'—', c: a.bb?(a.current<a.bb.lower?'bull':a.current>a.bb.upper?'bear':'neutral'):'neutral' },
+    { l:'EMA', v: a.ema9&&a.ema21?(a.ema9>a.ema21?'↑':'↓'):'—', c: a.ema9>a.ema21?'bull':'bear' },
+    { l:'Signal', v: a.action, c: a.action==='BUY'?'bull':a.action==='SELL'?'bear':'neutral' },
+  ];
+  document.getElementById('indicator-bar').innerHTML = pills.map(p =>
+    `<div class="ind-pill ${p.c}"><span class="ind-label">${p.l}</span><span class="ind-val">${p.v}</span></div>`
+  ).join('');
+}
+
+// ── Charts ─────────────────────────────────────────────────────────
+function initChart() {
+  const canvas = document.getElementById('priceChart');
+  if (priceChart) { priceChart.destroy(); priceChart = null; }
+  priceChart = new Chart(canvas, {
+    type: 'line',
+    data: { labels: [], datasets: [{ data: [], borderColor: '#34d399', backgroundColor: 'rgba(52,211,153,0.07)', borderWidth: 1.5, pointRadius: 0, fill: true, tension: 0.3 }] },
+    options: { responsive:true, maintainAspectRatio:false, animation:false,
+      plugins: { legend:{display:false} },
+      scales: { x:{display:false}, y:{ ticks:{font:{size:10},color:'#4b5563',callback:v=>'$'+v.toLocaleString()}, grid:{color:'rgba(255,255,255,0.04)'} } } }
+  });
+}
+
+function renderEquityChart() {
+  if (portfolioData.equityHistory) renderEquityChartData(portfolioData.equityHistory);
+}
+
+function renderEquityChartData(data) {
+  if (!data?.length) return;
+  const canvas = document.getElementById('equityChart');
+  const isUp = data[data.length-1] >= data[0];
+  if (!equityChart) {
+    equityChart = new Chart(canvas, {
+      type: 'line',
+      data: { labels: data.map((_,i)=>i), datasets: [{ data, borderColor: '#34d399', backgroundColor:'transparent', borderWidth:1.5, pointRadius:0, tension:0.4 }] },
+      options: { responsive:true, maintainAspectRatio:false, animation:false,
+        plugins:{legend:{display:false},tooltip:{enabled:false}},
+        scales:{ x:{display:false}, y:{ticks:{font:{size:9},color:'#4b5563',callback:v=>`$${(v/1000).toFixed(1)}k`},grid:{color:'rgba(255,255,255,0.04)'}} } }
+    });
+  } else {
+    equityChart.data.labels = data.map((_,i)=>i);
+    equityChart.data.datasets[0].data = data;
+    equityChart.data.datasets[0].borderColor = isUp ? '#34d399' : '#f87171';
+    equityChart.update('none');
+  }
+}
+
+// ── AI Think Box ──────────────────────────────────────────────────
+function appendThinkLine(text, type = 'data') {
+  const box = document.getElementById('ai-think-box');
+  const placeholder = box.querySelector('.think-placeholder');
+  if (placeholder) placeholder.remove();
+  const span = document.createElement('span');
+  span.className = `think-line ${type}`;
+  span.textContent = text;
+  box.appendChild(span);
+  box.appendChild(document.createTextNode('\n'));
+  box.scrollTop = box.scrollHeight;
+  // Keep only last 100 lines
+  const lines = box.querySelectorAll('.think-line');
+  if (lines.length > 100) lines[0].remove();
+}
+
+// ── Toast ──────────────────────────────────────────────────────────
+function toast(msg, type = 'success') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = `toast ${type} show`;
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+// ── Helpers ────────────────────────────────────────────────────────
+function fmtUSD(n) {
+  return '$' + Math.abs(n).toLocaleString('en-US', { minimumFractionDigits:2, maximumFractionDigits:2 });
+}
+function fmtPrice(price, symbol) {
+  const dp = price < 1 ? 4 : price < 10 ? 3 : 2;
+  return price.toLocaleString('en-US', { minimumFractionDigits:dp, maximumFractionDigits:dp });
+}
+
+// ── Reset ──────────────────────────────────────────────────────────
+document.getElementById('btn-reset').addEventListener('click', async () => {
+  await api('/api/order/../ai/stop', { method:'POST' }).catch(()=>{});
+  await api('/api/reset', { method:'POST' });
+  document.getElementById('ai-think-box').innerHTML = '<div class="think-placeholder">Start AI to begin…</div>';
+  document.getElementById('ai-signal-row').style.display = 'none';
+  updateAIStatusUI(false);
+  fetchPortfolio();
+  toast('Portfolio reset', 'info');
+});
+
+// ── Init ───────────────────────────────────────────────────────────
+(async () => {
+  await fetchMarket();
+  await fetchPortfolio();
+  initChart();
+  await fetchAndUpdateChart();
+
+  // Model badge
+  const st = await api('/api/ai/status');
+  if (st.ok) {
+    document.getElementById('model-badge').textContent = st.data.model + ' via OpenRouter';
+  }
+
+  // Poll monitoring every 5s
+  setInterval(fetchMonitoring, 5000);
+  fetchMonitoring();
+})();
+</script>
+</body>
+</html>
