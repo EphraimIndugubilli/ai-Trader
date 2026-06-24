@@ -2,7 +2,7 @@
 // Express backend: serves the dashboard, REST API, and Server-Sent Events
 // for real-time AI think-stream and market data.
 
-import express, { Request, Response } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import path from 'path';
 
 import * as Market from './market/engine';
@@ -16,6 +16,12 @@ import {
 import {
   AIThinkStep, APIResponse, MarketDataResponse
 } from './types/index';
+
+const REQUIRED_ENV = ['OPENROUTER_API_KEY'];
+const missing = REQUIRED_ENV.filter(k => !process.env[k]);
+if (missing.length) {
+  console.warn(`[warn] Missing env vars: ${missing.join(', ')} — AI trading will use fallback mode`);
+}
 
 
 
@@ -166,6 +172,27 @@ app.get('/api/ai/status', (_req: Request, res: Response) => {
   res.json({ ok: true, data: { running: aiRunning, model: process.env.AI_MODEL || 'anthropic/claude-sonnet-4-6' } });
 });
 
+// ── Health check ──────────────────────────────────────────────────
+app.get('/api/health', (_req: Request, res: Response) => {
+  const snapshot = Trading.getSnapshot();
+  res.json({
+    ok: true,
+    uptime: Math.floor(process.uptime()),
+    aiRunning,
+    pairs: Market.getAllPairs().length,
+    openPositions: snapshot.openPositions,
+    balance: snapshot.balance,
+    totalPnL: snapshot.totalPnL,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// ── Global error handler ──────────────────────────────────────────
+app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+  console.error('[error]', err.message);
+  res.status(500).json({ ok: false, error: 'Internal server error' });
+});
+
 // ── Market tick loop ──────────────────────────────────────────────
 Market.init();
 
@@ -185,9 +212,27 @@ setInterval(() => {
 }, 2_000);
 
 // ── Start ─────────────────────────────────────────────────────────
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`\n⚡ Pear Trader running at http://localhost:${PORT}`);
   console.log(`   Model:    ${process.env.AI_MODEL || 'anthropic/claude-sonnet-4-6'} via OpenRouter`);
   console.log(`   Langfuse: ${process.env.LANGFUSE_HOST || 'cloud.langfuse.com'}`);
+  console.log(`   Health:   http://localhost:${PORT}/api/health`);
   console.log(`   Triage:   http://localhost:${PORT}/api/monitoring/report\n`);
 });
+
+// ── Graceful shutdown ─────────────────────────────────────────────
+function shutdown(signal: string): void {
+  console.log(`\n[${signal}] Shutting down gracefully…`);
+  if (aiInterval) clearInterval(aiInterval);
+  for (const client of sseClients) {
+    try { client.res.end(); } catch { /* ignore */ }
+  }
+  server.close(() => {
+    console.log('Server closed. Goodbye.\n');
+    process.exit(0);
+  });
+  setTimeout(() => process.exit(1), 5000);
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT',  () => shutdown('SIGINT'));

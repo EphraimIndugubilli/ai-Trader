@@ -7,6 +7,16 @@ import {
 } from '../types/index';
 import { getPrices, getVolume } from '../market/engine';
 
+// ── Williams %R ────────────────────────────────────────────────────
+export function williamsR(prices: number[], period = 14): number | null {
+  if (prices.length < period) return null;
+  const slice = prices.slice(-period);
+  const highest = Math.max(...slice);
+  const lowest = Math.min(...slice);
+  if (highest === lowest) return -50;
+  return parseFloat((((highest - slice[slice.length - 1]) / (highest - lowest)) * -100).toFixed(2));
+}
+
 // ── Primitives ────────────────────────────────────────────────────
 export function ema(prices: number[], period: number): number | null {
   if (prices.length < period) return null;
@@ -115,6 +125,25 @@ export function trendStrength(prices: number[], period = 14): number {
   return total === 0 ? 0 : parseFloat((Math.abs(up - down) / total * 100).toFixed(2));
 }
 
+// RSI divergence: bullish if price makes lower low but RSI makes higher low
+export function detectDivergence(prices: number[], period = 14): 'bullish' | 'bearish' | 'none' {
+  if (prices.length < period * 2 + 1) return 'none';
+  const half = Math.floor(prices.length / 2);
+  const firstHalf = prices.slice(0, half);
+  const secondHalf = prices.slice(half);
+
+  const rsi1 = rsi(firstHalf, period);
+  const rsi2 = rsi(secondHalf, period);
+  if (!rsi1 || !rsi2) return 'none';
+
+  const price1 = firstHalf[firstHalf.length - 1];
+  const price2 = secondHalf[secondHalf.length - 1];
+
+  if (price2 < price1 && rsi2 > rsi1) return 'bullish';
+  if (price2 > price1 && rsi2 < rsi1) return 'bearish';
+  return 'none';
+}
+
 // ── Full composite signal ─────────────────────────────────────────
 export function compute(symbol: string): IndicatorResult | null {
   const prices = getPrices(symbol);
@@ -129,6 +158,8 @@ export function compute(symbol: string): IndicatorResult | null {
   const ema50Val  = ema(prices, 50);
   const atrVal    = atr(prices);
   const stoch     = stochastic(prices);
+  const wR        = williamsR(prices);
+  const diverg    = detectDivergence(prices);
   const volSig    = volumeSignal(volume);
   const sr        = supportResistance(prices);
   const trend     = trendStrength(prices);
@@ -165,6 +196,16 @@ export function compute(symbol: string): IndicatorResult | null {
     if      (stoch.k < 20) { score += 10; reasons.push(`Stoch oversold (${stoch.k})`); }
     else if (stoch.k > 80) { score -= 10; reasons.push(`Stoch overbought (${stoch.k})`); }
   }
+
+  // Williams %R
+  if (wR !== null) {
+    if      (wR <= -80) { score += 12; reasons.push(`Williams %R oversold (${wR})`); }
+    else if (wR >= -20) { score -= 12; reasons.push(`Williams %R overbought (${wR})`); }
+  }
+
+  // RSI divergence
+  if (diverg === 'bullish') { score += 18; reasons.push('Bullish RSI divergence detected'); }
+  if (diverg === 'bearish') { score -= 18; reasons.push('Bearish RSI divergence detected'); }
 
   if      (volSig === 'high') { score *= 1.2; reasons.push('High volume confirms signal'); }
   else if (volSig === 'low')  { score *= 0.7; reasons.push('Low volume — signal weakened'); }
