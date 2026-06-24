@@ -15,6 +15,12 @@ export const PAIRS: TradingPair[] = [
   { symbol: 'ARB-PERP',  name: 'ARB/USDT',  base: 1.12,   vol: 0.0028, decimals: 5 },
   { symbol: 'DOGE-PERP', name: 'DOGE/USDT', base: 0.165,  vol: 0.0030, decimals: 5 },
   { symbol: 'WIF-PERP',  name: 'WIF/USDT',  base: 2.85,   vol: 0.0035, decimals: 5 },
+  { symbol: 'AVAX-PERP', name: 'AVAX/USDT', base: 38.5,   vol: 0.0025, decimals: 3 },
+  { symbol: 'LINK-PERP', name: 'LINK/USDT', base: 14.8,   vol: 0.0023, decimals: 4 },
+  { symbol: 'INJ-PERP',  name: 'INJ/USDT',  base: 22.4,   vol: 0.0032, decimals: 4 },
+  { symbol: 'OP-PERP',   name: 'OP/USDT',   base: 1.85,   vol: 0.0030, decimals: 5 },
+  { symbol: 'SUI-PERP',  name: 'SUI/USDT',  base: 1.42,   vol: 0.0038, decimals: 5 },
+  { symbol: 'TIA-PERP',  name: 'TIA/USDT',  base: 5.60,   vol: 0.0042, decimals: 4 },
 ];
 
 const HISTORY_LEN = 80;

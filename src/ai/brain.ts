@@ -240,9 +240,15 @@ async function executeDecision(
       return;
     }
 
+    // ATR-based sizing: risk 1% of portfolio value per trade
+    const atrSized = calcAtrPositionSize(symbol, decision, getSnapshot().portfolioValue);
+    const finalAmount = Math.min(amount, atrSized ?? amount);
+
     const result = placeOrder({
       symbol, side: action.toLowerCase() as 'buy' | 'sell',
-      amountUSDT: amount, stopLoss, takeProfit, source: 'ai',
+      amountUSDT: finalAmount, stopLoss, takeProfit,
+      trailingStopPct: 2.5,
+      source: 'ai',
     });
 
     if (result.ok && result.position) {
@@ -291,14 +297,31 @@ function executeFallback(best: IndicatorResult | undefined, traceId: string): vo
     symbol: best.symbol,
     side:   best.action.toLowerCase() as 'buy' | 'sell',
     amountUSDT: amount,
-    stopLoss:  best.stopLoss ?? undefined,
-    takeProfit: best.target  ?? undefined,
+    stopLoss:   best.stopLoss ?? undefined,
+    takeProfit: best.target   ?? undefined,
+    trailingStopPct: 2.5,
     source: 'ai',
   });
 
   if (result.ok) {
     logSpan({ traceId, name: 'fallback_execute', output: { symbol: best.symbol, amount } });
   }
+}
+
+// ── ATR-based position sizing (1% portfolio risk per trade) ──────
+function calcAtrPositionSize(
+  symbol: string,
+  decision: AIDecision,
+  portfolioValue: number
+): number | null {
+  const analysis = compute(symbol);
+  if (!analysis?.atr || !decision.stopLoss) return null;
+  const price    = analysis.current;
+  const riskPerUnit = Math.abs(price - decision.stopLoss);
+  if (riskPerUnit <= 0) return null;
+  const riskBudget  = portfolioValue * 0.01; // risk 1% of portfolio
+  const qty         = riskBudget / riskPerUnit;
+  return parseFloat((qty * price).toFixed(2));
 }
 
 // ── Best opportunity selector ─────────────────────────────────────
@@ -338,7 +361,9 @@ function classifyLine(line: string): AIThinkStep['type'] {
 const SYSTEM_PROMPT = `You are an expert crypto trading AI specializing in Hyperliquid perpetuals.
 You analyze technical indicators and perp-specific metrics (funding rates, OI, mark/index spread).
 You think step-by-step, are disciplined about risk management, and always output a JSON decision.
-Rules: max 25% balance per trade, always set stop loss, never trade hallucinated symbols.`;
+Rules: max 25% balance per trade, always set stopLoss, never trade hallucinated symbols.
+Position sizing is ATR-based (1% portfolio risk per trade). Trailing stops are auto-applied at 2.5%.
+Review open positions for trailing-stop efficiency and take-profit targets before entering new trades.`;
 
 // ── Prompt builder ────────────────────────────────────────────────
 function buildPrompt(

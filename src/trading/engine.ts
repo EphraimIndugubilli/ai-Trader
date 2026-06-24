@@ -1,6 +1,5 @@
 // src/trading/engine.ts
-// Core trading engine with full TypeScript types.
-// Position lifecycle: open → monitor SL/TP → close → log.
+// Core trading engine — position lifecycle with trailing stops, persistence, and full typing.
 
 import { v4 as uuidv4 } from 'uuid';
 import {
@@ -8,22 +7,37 @@ import {
   PortfolioSnapshot, CloseReason
 } from '../types/index';
 import { getPrice, calcLiquidationPrice, calcFundingPnL } from '../market/engine';
+import { saveState, loadState, clearState } from '../persistence/store';
 
 // ── Constants ─────────────────────────────────────────────────────
 export const INITIAL_BALANCE    = 10_000;
-export const FEE_RATE           = 0.001;   // 0.1% maker fee (Hyperliquid rate)
-export const MAX_POSITION_PCT   = 0.25;    // max 25% of balance per trade
-export const DEFAULT_LEVERAGE   = 5;       // 5x leverage (Hyperliquid default)
+export const FEE_RATE           = 0.001;
+export const MAX_POSITION_PCT   = 0.25;
+export const DEFAULT_LEVERAGE   = 5;
 
 // ── State ─────────────────────────────────────────────────────────
 let balance         = INITIAL_BALANCE;
-let positions: Position[]      = [];
+let positions: Position[]       = [];
 let closedTrades: ClosedTrade[] = [];
-let equityHistory: number[]    = [INITIAL_BALANCE];
+let equityHistory: number[]     = [INITIAL_BALANCE];
+
+// Restore persisted state on startup
+(function restore() {
+  const saved = loadState();
+  if (!saved) return;
+  balance       = saved.balance;
+  positions     = saved.positions;
+  closedTrades  = saved.closedTrades;
+  equityHistory = saved.equityHistory;
+})();
+
+function persist(): void {
+  saveState({ balance, positions, closedTrades, equityHistory });
+}
 
 // ── Place Order ───────────────────────────────────────────────────
 export function placeOrder(req: OrderRequest): OrderResult {
-  const { symbol, side, amountUSDT, stopLoss, takeProfit, source = 'ai' } = req;
+  const { symbol, side, amountUSDT, stopLoss, takeProfit, trailingStopPct, source = 'ai' } = req;
 
   const price = getPrice(symbol);
   if (price <= 0) return { ok: false, error: 'Invalid market price' };
@@ -35,27 +49,38 @@ export function placeOrder(req: OrderRequest): OrderResult {
   const fee    = amount * FEE_RATE;
   const qty    = amount / price;
 
+  // Initialise trailing stop price from entry
+  let trailingPrice: number | null = null;
+  if (trailingStopPct && trailingStopPct > 0) {
+    trailingPrice = side === 'buy'
+      ? parseFloat((price * (1 - trailingStopPct / 100)).toFixed(6))
+      : parseFloat((price * (1 + trailingStopPct / 100)).toFixed(6));
+  }
+
   balance -= (amount + fee);
   balance  = parseFloat(balance.toFixed(4));
 
   const position: Position = {
-    id:          uuidv4(),
+    id:               uuidv4(),
     symbol,
-    name:        symbol.replace('-PERP', '/USDT'),
+    name:             symbol.replace('-PERP', '/USDT'),
     side,
     price,
-    amountUSDT:  amount,
+    amountUSDT:       amount,
     qty,
     fee,
-    stopLoss:    stopLoss ?? null,
-    takeProfit:  takeProfit ?? null,
+    stopLoss:         stopLoss ?? null,
+    takeProfit:       takeProfit ?? null,
+    trailingStopPct:  trailingStopPct ?? null,
+    trailingStopPrice: trailingPrice,
     source,
-    timestamp:   Date.now(),
-    timeStr:     new Date().toLocaleTimeString(),
-    status:      'open',
+    timestamp:        Date.now(),
+    timeStr:          new Date().toLocaleTimeString(),
+    status:           'open',
   };
 
   positions.push(position);
+  persist();
   return { ok: true, position };
 }
 
@@ -92,17 +117,36 @@ export function closePosition(id: string, reason: CloseReason = 'manual'): Close
   equityHistory.push(parseFloat(getPortfolioValue().toFixed(2)));
   if (equityHistory.length > 500) equityHistory.shift();
 
+  persist();
   return closed;
 }
 
-// ── Auto SL/TP check ──────────────────────────────────────────────
+// ── Trailing stop ratchet — called on every market tick ──────────
+function updateTrailingStops(): void {
+  for (const pos of positions) {
+    if (!pos.trailingStopPct || !pos.trailingStopPrice) continue;
+    const curr = getPrice(pos.symbol);
+    const pct  = pos.trailingStopPct / 100;
+
+    if (pos.side === 'buy') {
+      const newStop = parseFloat((curr * (1 - pct)).toFixed(6));
+      if (newStop > pos.trailingStopPrice) pos.trailingStopPrice = newStop;
+    } else {
+      const newStop = parseFloat((curr * (1 + pct)).toFixed(6));
+      if (newStop < pos.trailingStopPrice) pos.trailingStopPrice = newStop;
+    }
+  }
+}
+
+// ── Auto SL/TP/Trailing/Liquidation check ─────────────────────────
 export function checkStops(): Array<{ trade: ClosedTrade; reason: CloseReason }> {
+  updateTrailingStops();
   const results: Array<{ trade: ClosedTrade; reason: CloseReason }> = [];
 
   for (const pos of [...positions]) {
     const curr = getPrice(pos.symbol);
 
-    // Liquidation check
+    // Liquidation
     const liqPrice = calcLiquidationPrice(pos, DEFAULT_LEVERAGE);
     if ((pos.side === 'buy' && curr <= liqPrice) ||
         (pos.side === 'sell' && curr >= liqPrice)) {
@@ -111,6 +155,17 @@ export function checkStops(): Array<{ trade: ClosedTrade; reason: CloseReason }>
       continue;
     }
 
+    // Trailing stop
+    if (pos.trailingStopPrice) {
+      if ((pos.side === 'buy'  && curr <= pos.trailingStopPrice) ||
+          (pos.side === 'sell' && curr >= pos.trailingStopPrice)) {
+        const closed = closePosition(pos.id, 'trailing_stop');
+        if (closed) results.push({ trade: closed, reason: 'trailing_stop' });
+        continue;
+      }
+    }
+
+    // Fixed stop loss
     if (pos.stopLoss) {
       if ((pos.side === 'buy'  && curr <= pos.stopLoss) ||
           (pos.side === 'sell' && curr >= pos.stopLoss)) {
@@ -120,6 +175,7 @@ export function checkStops(): Array<{ trade: ClosedTrade; reason: CloseReason }>
       }
     }
 
+    // Take profit
     if (pos.takeProfit) {
       if ((pos.side === 'buy'  && curr >= pos.takeProfit) ||
           (pos.side === 'sell' && curr <= pos.takeProfit)) {
@@ -136,10 +192,10 @@ export function checkStops(): Array<{ trade: ClosedTrade; reason: CloseReason }>
 export function getPortfolioValue(): number {
   let posValue = 0;
   for (const pos of positions) {
-    const curr     = getPrice(pos.symbol);
-    const currVal  = pos.qty * curr;
-    const pnl      = pos.side === 'buy' ? currVal - pos.amountUSDT : pos.amountUSDT - currVal;
-    posValue      += pos.amountUSDT + pnl;
+    const curr    = getPrice(pos.symbol);
+    const currVal = pos.qty * curr;
+    const pnl     = pos.side === 'buy' ? currVal - pos.amountUSDT : pos.amountUSDT - currVal;
+    posValue     += pos.amountUSDT + pnl;
   }
   return balance + posValue;
 }
@@ -191,6 +247,7 @@ export function reset(): void {
   positions     = [];
   closedTrades  = [];
   equityHistory = [INITIAL_BALANCE];
+  clearState();
 }
 
 export function getBalance():       number          { return balance; }

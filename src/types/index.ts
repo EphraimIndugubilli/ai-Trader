@@ -3,7 +3,7 @@
 
 export type Side = 'buy' | 'sell';
 export type OrderStatus = 'open' | 'closed' | 'cancelled';
-export type CloseReason = 'manual' | 'stop_loss' | 'take_profit' | 'ai_decision' | 'liquidation';
+export type CloseReason = 'manual' | 'stop_loss' | 'take_profit' | 'trailing_stop' | 'ai_decision' | 'liquidation';
 export type AIAction = 'BUY' | 'SELL' | 'HOLD' | 'CLOSE' | 'CLOSE_ALL';
 export type SignalStrength = 'strong' | 'moderate' | 'weak';
 export type VolumeSignal = 'high' | 'normal' | 'low';
@@ -70,6 +70,8 @@ export interface Order {
   fee: number;
   stopLoss: number | null;
   takeProfit: number | null;
+  trailingStopPct: number | null;
+  trailingStopPrice: number | null;
   source: TradeSource;
   timestamp: number;
   timeStr: string;
@@ -95,6 +97,7 @@ export interface OrderRequest {
   amountUSDT: number;
   stopLoss?: number | null;
   takeProfit?: number | null;
+  trailingStopPct?: number | null;
   source?: TradeSource;
 }
 
