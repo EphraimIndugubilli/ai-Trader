@@ -129,6 +129,43 @@ app.post('/api/reset', (_req: Request, res: Response) => {
   res.json({ ok: true });
 });
 
+// ── Trading stats ─────────────────────────────────────────────────
+app.get('/api/stats', (_req: Request, res: Response) => {
+  const closed = Trading.getClosedTrades();
+  const snapshot = Trading.getSnapshot();
+  const wins = closed.filter(t => t.pnl > 0);
+  const losses = closed.filter(t => t.pnl <= 0);
+  const totalPnL = closed.reduce((s, t) => s + t.pnl, 0);
+  const avgWin = wins.length ? wins.reduce((s, t) => s + t.pnl, 0) / wins.length : 0;
+  const avgLoss = losses.length ? losses.reduce((s, t) => s + t.pnl, 0) / losses.length : 0;
+  const best = closed.length ? closed.reduce((a, b) => (a.pnl > b.pnl ? a : b)) : null;
+  const worst = closed.length ? closed.reduce((a, b) => (a.pnl < b.pnl ? a : b)) : null;
+  const equity = Trading.getEquityHistory();
+  let peak = equity[0] ?? snapshot.balance;
+  let maxDrawdown = 0;
+  for (const e of equity) {
+    if (e > peak) peak = e;
+    const dd = (peak - e) / peak;
+    if (dd > maxDrawdown) maxDrawdown = dd;
+  }
+  res.json({
+    ok: true,
+    data: {
+      totalTrades: closed.length,
+      winRate: closed.length ? ((wins.length / closed.length) * 100).toFixed(1) + '%' : 'N/A',
+      totalPnL: totalPnL.toFixed(2),
+      avgWin: avgWin.toFixed(2),
+      avgLoss: avgLoss.toFixed(2),
+      profitFactor: avgLoss !== 0 ? Math.abs(avgWin / avgLoss).toFixed(2) : 'N/A',
+      maxDrawdownPct: (maxDrawdown * 100).toFixed(2) + '%',
+      bestTrade: best ? { symbol: best.symbol, pnl: best.pnl.toFixed(2) } : null,
+      worstTrade: worst ? { symbol: worst.symbol, pnl: worst.pnl.toFixed(2) } : null,
+      openPositions: snapshot.openPositions,
+      balance: snapshot.balance,
+    },
+  });
+});
+
 // ── Langfuse / Observability ───────────────────────────────────────
 app.get('/api/monitoring/traces', (_req: Request, res: Response) => {
   res.json({ ok: true, data: localTraces.slice(0, 20) });
