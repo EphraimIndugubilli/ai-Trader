@@ -148,6 +148,23 @@ app.get('/api/stats', (_req: Request, res: Response) => {
     const dd = (peak - e) / peak;
     if (dd > maxDrawdown) maxDrawdown = dd;
   }
+
+  // Sharpe ratio from equity curve returns (annualised, risk-free rate = 0)
+  let sharpeRatio: string = 'N/A';
+  if (equity.length > 2) {
+    const returns = equity.slice(1).map((v, i) => (v - equity[i]) / equity[i]);
+    const meanR = returns.reduce((s, r) => s + r, 0) / returns.length;
+    const variance = returns.reduce((s, r) => s + (r - meanR) ** 2, 0) / returns.length;
+    const stdDev = Math.sqrt(variance);
+    sharpeRatio = stdDev > 0 ? (meanR / stdDev * Math.sqrt(252)).toFixed(2) : 'N/A';
+  }
+
+  // Average trade duration
+  const avgDurationMs = closed.length
+    ? closed.reduce((s, t) => s + t.durationMs, 0) / closed.length
+    : 0;
+  const avgDurationMin = (avgDurationMs / 60_000).toFixed(1);
+
   res.json({
     ok: true,
     data: {
@@ -158,12 +175,40 @@ app.get('/api/stats', (_req: Request, res: Response) => {
       avgLoss: avgLoss.toFixed(2),
       profitFactor: avgLoss !== 0 ? Math.abs(avgWin / avgLoss).toFixed(2) : 'N/A',
       maxDrawdownPct: (maxDrawdown * 100).toFixed(2) + '%',
+      sharpeRatio,
+      avgTradeDurationMin: avgDurationMin,
       bestTrade: best ? { symbol: best.symbol, pnl: best.pnl.toFixed(2) } : null,
       worstTrade: worst ? { symbol: worst.symbol, pnl: worst.pnl.toFixed(2) } : null,
       openPositions: snapshot.openPositions,
       balance: snapshot.balance,
     },
   });
+});
+
+// ── Per-symbol performance breakdown ─────────────────────────────
+app.get('/api/stats/symbols', (_req: Request, res: Response) => {
+  const closed = Trading.getClosedTrades();
+  const bySymbol: Record<string, { trades: number; wins: number; pnl: number; avgDurationMs: number }> = {};
+
+  for (const t of closed) {
+    if (!bySymbol[t.symbol]) bySymbol[t.symbol] = { trades: 0, wins: 0, pnl: 0, avgDurationMs: 0 };
+    const s = bySymbol[t.symbol];
+    s.trades++;
+    s.pnl += t.pnl;
+    s.avgDurationMs += t.durationMs;
+    if (t.pnl > 0) s.wins++;
+  }
+
+  const rows = Object.entries(bySymbol).map(([symbol, s]) => ({
+    symbol,
+    trades: s.trades,
+    winRate: ((s.wins / s.trades) * 100).toFixed(1) + '%',
+    totalPnL: s.pnl.toFixed(2),
+    avgPnL: (s.pnl / s.trades).toFixed(2),
+    avgDurationMin: (s.avgDurationMs / s.trades / 60_000).toFixed(1),
+  })).sort((a, b) => parseFloat(b.totalPnL) - parseFloat(a.totalPnL));
+
+  res.json({ ok: true, data: rows });
 });
 
 // ── Langfuse / Observability ───────────────────────────────────────
