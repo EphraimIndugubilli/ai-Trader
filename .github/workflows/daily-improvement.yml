@@ -1,0 +1,38 @@
+name: Daily Code Improvement
+
+on:
+  schedule:
+    - cron: '45 3 * * *'   # 9:15 AM IST every day
+  workflow_dispatch:         # allow manual trigger from GitHub UI
+
+jobs:
+  improve:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Apply daily improvement
+        run: node scripts/daily-improve.js
+
+      - name: Commit and push
+        run: |
+          git config user.name "EphraimIndugubilli"
+          git config user.email "ephraimindugubilli@gmail.com"
+          git add -A
+          if git diff --staged --quiet; then
+            echo "No changes to commit today"
+            exit 0
+          fi
+          git commit -m "$(cat /tmp/improvement-message.txt)"
+          git push
