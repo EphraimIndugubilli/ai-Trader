@@ -1,3 +1,4 @@
 [
-  "src/utils/math.ts"
+  "src/utils/math.ts",
+  "src/indicators/cci.ts"
 ]
