@@ -145,6 +145,7 @@ export interface IndicatorResult {
   volSig: VolumeSignal;
   sr: SupportResistance;
   trend: number;
+  roc: number | null;
   score: number;
   action: AIAction;
   confidence: number;

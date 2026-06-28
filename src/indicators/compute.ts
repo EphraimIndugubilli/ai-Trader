@@ -125,6 +125,14 @@ export function trendStrength(prices: number[], period = 14): number {
   return total === 0 ? 0 : parseFloat((Math.abs(up - down) / total * 100).toFixed(2));
 }
 
+// Rate of Change: percentage price change over N periods
+export function roc(prices: number[], period = 10): number | null {
+  if (prices.length < period + 1) return null;
+  const past = prices[prices.length - 1 - period];
+  if (past === 0) return null;
+  return parseFloat((((prices[prices.length - 1] - past) / past) * 100).toFixed(4));
+}
+
 // RSI divergence: bullish if price makes lower low but RSI makes higher low
 export function detectDivergence(prices: number[], period = 14): 'bullish' | 'bearish' | 'none' {
   if (prices.length < period * 2 + 1) return 'none';
@@ -159,6 +167,7 @@ export function compute(symbol: string): IndicatorResult | null {
   const atrVal    = atr(prices);
   const stoch     = stochastic(prices);
   const wR        = williamsR(prices);
+  const rocVal    = roc(prices, 10);
   const diverg    = detectDivergence(prices);
   const volSig    = volumeSignal(volume);
   const sr        = supportResistance(prices);
@@ -185,6 +194,20 @@ export function compute(symbol: string): IndicatorResult | null {
   if (ema9Val && ema21Val) {
     if      (ema9Val > ema21Val && current > ema21Val) { score += 20; reasons.push('EMA9 > EMA21 (uptrend)'); }
     else if (ema9Val < ema21Val && current < ema21Val) { score -= 20; reasons.push('EMA9 < EMA21 (downtrend)'); }
+  }
+
+  // EMA50 trend filter — confirms or weakens directional bias
+  if (ema50Val) {
+    if      (current > ema50Val && ema9Val && ema9Val > ema50Val) { score += 10; reasons.push(`Price above EMA50 (${ema50Val.toFixed(4)}) — bullish structure`); }
+    else if (current < ema50Val && ema9Val && ema9Val < ema50Val) { score -= 10; reasons.push(`Price below EMA50 (${ema50Val.toFixed(4)}) — bearish structure`); }
+  }
+
+  // ROC momentum — strong positive/negative momentum confirms direction
+  if (rocVal !== null) {
+    if      (rocVal > 3)  { score += 12; reasons.push(`ROC momentum strong bullish (+${rocVal.toFixed(2)}%)`); }
+    else if (rocVal > 1)  { score += 6;  reasons.push(`ROC momentum mild bullish (+${rocVal.toFixed(2)}%)`); }
+    else if (rocVal < -3) { score -= 12; reasons.push(`ROC momentum strong bearish (${rocVal.toFixed(2)}%)`); }
+    else if (rocVal < -1) { score -= 6;  reasons.push(`ROC momentum mild bearish (${rocVal.toFixed(2)}%)`); }
   }
 
   if (bb) {
@@ -235,6 +258,7 @@ export function compute(symbol: string): IndicatorResult | null {
     rsi: rsiVal, macd: macdVal, bb,
     ema9: ema9Val, ema21: ema21Val, ema50: ema50Val,
     atr: atrVal, stoch, volSig, sr, trend,
+    roc: rocVal,
     score: parseFloat(score.toFixed(2)),
     action, confidence: parseFloat(confidence.toFixed(1)),
     target, stopLoss, reasons,
