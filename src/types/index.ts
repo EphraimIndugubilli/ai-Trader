@@ -131,6 +131,13 @@ export interface SupportResistance {
   resistance: number | null;
 }
 
+export type OBVTrend = 'rising' | 'flat' | 'falling';
+
+export interface OBVResult {
+  value: number;
+  trend: OBVTrend;
+}
+
 export interface IndicatorResult {
   symbol: string;
   current: number;
@@ -143,6 +150,7 @@ export interface IndicatorResult {
   atr: number | null;
   stoch: StochasticResult | null;
   volSig: VolumeSignal;
+  obv: OBVResult | null;
   sr: SupportResistance;
   trend: number;
   roc: number | null;

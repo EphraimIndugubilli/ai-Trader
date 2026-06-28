@@ -3,7 +3,7 @@
 
 import {
   IndicatorResult, MACDResult, BollingerBands,
-  StochasticResult, SupportResistance, VolumeSignal, AIAction
+  StochasticResult, SupportResistance, VolumeSignal, AIAction, OBVResult
 } from '../types/index';
 import { getPrices, getVolume } from '../market/engine';
 
@@ -152,6 +152,30 @@ export function detectDivergence(prices: number[], period = 14): 'bullish' | 'be
   return 'none';
 }
 
+// ── On-Balance Volume ─────────────────────────────────────────────
+// OBV is the #1 trending volume indicator in 2026 — cumulative sum that
+// adds volume on up-days and subtracts on down-days, revealing whether
+// smart money is accumulating or distributing.
+export function obv(prices: number[], volume: number[]): OBVResult | null {
+  if (prices.length < 2 || volume.length < 2) return null;
+  const len = Math.min(prices.length, volume.length);
+  const series: number[] = [volume[0]];
+  for (let i = 1; i < len; i++) {
+    const prev = series[series.length - 1];
+    if (prices[i] > prices[i - 1]) series.push(prev + volume[i]);
+    else if (prices[i] < prices[i - 1]) series.push(prev - volume[i]);
+    else series.push(prev);
+  }
+  const obvEma9  = ema(series, 9);
+  const obvEma21 = ema(series, 21);
+  let trend: OBVResult['trend'] = 'flat';
+  if (obvEma9 !== null && obvEma21 !== null) {
+    if      (obvEma9 > obvEma21 * 1.001) trend = 'rising';
+    else if (obvEma9 < obvEma21 * 0.999) trend = 'falling';
+  }
+  return { value: series[series.length - 1], trend };
+}
+
 // ── Full composite signal ─────────────────────────────────────────
 export function compute(symbol: string): IndicatorResult | null {
   const prices = getPrices(symbol);
@@ -170,6 +194,7 @@ export function compute(symbol: string): IndicatorResult | null {
   const rocVal    = roc(prices, 10);
   const diverg    = detectDivergence(prices);
   const volSig    = volumeSignal(volume);
+  const obvVal    = obv(prices, volume);
   const sr        = supportResistance(prices);
   const trend     = trendStrength(prices);
   const current   = prices[prices.length - 1];
@@ -233,6 +258,19 @@ export function compute(symbol: string): IndicatorResult | null {
   if      (volSig === 'high') { score *= 1.2; reasons.push('High volume confirms signal'); }
   else if (volSig === 'low')  { score *= 0.7; reasons.push('Low volume — signal weakened'); }
 
+  // OBV — cumulative volume flow confirmation
+  if (obvVal) {
+    if (obvVal.trend === 'rising' && score > 0) {
+      score += 14; reasons.push('OBV rising — smart money accumulating');
+    } else if (obvVal.trend === 'rising' && score < 0) {
+      score += 8;  reasons.push('OBV rising against price drop — bullish divergence');
+    } else if (obvVal.trend === 'falling' && score < 0) {
+      score -= 14; reasons.push('OBV falling — distribution pressure confirmed');
+    } else if (obvVal.trend === 'falling' && score > 0) {
+      score -= 8;  reasons.push('OBV falling into price rise — bearish divergence');
+    }
+  }
+
   score = Math.max(-100, Math.min(100, score));
 
   let action: AIAction = 'HOLD';
@@ -257,7 +295,7 @@ export function compute(symbol: string): IndicatorResult | null {
     symbol, current,
     rsi: rsiVal, macd: macdVal, bb,
     ema9: ema9Val, ema21: ema21Val, ema50: ema50Val,
-    atr: atrVal, stoch, volSig, sr, trend,
+    atr: atrVal, stoch, volSig, obv: obvVal, sr, trend,
     roc: rocVal,
     score: parseFloat(score.toFixed(2)),
     action, confidence: parseFloat(confidence.toFixed(1)),
