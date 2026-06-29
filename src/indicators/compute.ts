@@ -6,6 +6,7 @@ import {
   StochasticResult, SupportResistance, VolumeSignal, AIAction, OBVResult
 } from '../types/index';
 import { getPrices, getVolume } from '../market/engine';
+import { cci } from './cci';
 
 // ── Williams %R ────────────────────────────────────────────────────
 export function williamsR(prices: number[], period = 14): number | null {
@@ -197,6 +198,7 @@ export function compute(symbol: string): IndicatorResult | null {
   const obvVal    = obv(prices, volume);
   const sr        = supportResistance(prices);
   const trend     = trendStrength(prices);
+  const cciVal    = cci(prices);
   const current   = prices[prices.length - 1];
 
   let score = 0;
@@ -255,6 +257,14 @@ export function compute(symbol: string): IndicatorResult | null {
   if (diverg === 'bullish') { score += 18; reasons.push('Bullish RSI divergence detected'); }
   if (diverg === 'bearish') { score -= 18; reasons.push('Bearish RSI divergence detected'); }
 
+  // CCI — extreme readings confirm momentum exhaustion or reversal zones
+  if (cciVal !== null) {
+    if      (cciVal < -150) { score += 16; reasons.push(`CCI deeply oversold (${cciVal.toFixed(0)}) — strong mean-reversion buy zone`); }
+    else if (cciVal < -100) { score += 10; reasons.push(`CCI oversold (${cciVal.toFixed(0)}) — potential reversal zone`); }
+    else if (cciVal > 150)  { score -= 16; reasons.push(`CCI deeply overbought (${cciVal.toFixed(0)}) — strong mean-reversion sell zone`); }
+    else if (cciVal > 100)  { score -= 10; reasons.push(`CCI overbought (${cciVal.toFixed(0)}) — watch for pullback`); }
+  }
+
   if      (volSig === 'high') { score *= 1.2; reasons.push('High volume confirms signal'); }
   else if (volSig === 'low')  { score *= 0.7; reasons.push('Low volume — signal weakened'); }
 
@@ -296,7 +306,7 @@ export function compute(symbol: string): IndicatorResult | null {
     rsi: rsiVal, macd: macdVal, bb,
     ema9: ema9Val, ema21: ema21Val, ema50: ema50Val,
     atr: atrVal, stoch, volSig, obv: obvVal, sr, trend,
-    roc: rocVal,
+    roc: rocVal, cci: cciVal,
     score: parseFloat(score.toFixed(2)),
     action, confidence: parseFloat(confidence.toFixed(1)),
     target, stopLoss, reasons,

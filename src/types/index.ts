@@ -154,6 +154,7 @@ export interface IndicatorResult {
   sr: SupportResistance;
   trend: number;
   roc: number | null;
+  cci: number | null;
   score: number;
   action: AIAction;
   confidence: number;
