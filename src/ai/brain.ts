@@ -58,9 +58,12 @@ export async function runCycle(): Promise<void> {
     const analysis = compute(pair.symbol);
     if (analysis) {
       analyses.push(analysis);
+      const cf = analysis.confluence;
       emit(
         `${pair.symbol}: RSI=${analysis.rsi?.toFixed(1)} | ` +
         `MACD=${analysis.macd ? (analysis.macd.histogram > 0 ? 'BULL' : 'BEAR') : 'N/A'} | ` +
+        `OBV=${analysis.obv?.trend ?? 'N/A'} | ` +
+        `Confluence=${cf.score}/3 ${cf.gated ? '✓' : '✗'} ${cf.direction} | ` +
         `Score=${analysis.score > 0 ? '+' : ''}${analysis.score.toFixed(0)} | ` +
         `Signal=${analysis.action}`,
         'data'
@@ -71,7 +74,12 @@ export async function runCycle(): Promise<void> {
   // 2. Pick best opportunity
   const best = selectBestOpportunity(analyses);
   if (best) {
-    emit(`Best opportunity: ${best.symbol} | Action=${best.action} | Confidence=${best.confidence}%`, 'signal');
+    const cf = best.confluence;
+    emit(
+      `Best opportunity: ${best.symbol} | Action=${best.action} | Confidence=${best.confidence}% | ` +
+      `Confluence=${cf.score}/3 (${cf.direction})${cf.gated ? ' — GATED ✓' : ' — BLOCKED ✗'}`,
+      'signal'
+    );
     emit(`Reasons: ${best.reasons.slice(0, 3).join(' · ')}`, 'data');
   }
 

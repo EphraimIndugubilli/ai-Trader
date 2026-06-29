@@ -138,6 +138,15 @@ export interface OBVResult {
   trend: OBVTrend;
 }
 
+export interface ConfluenceResult {
+  score: number;          // 0–3: how many of RSI/MACD/OBV agree on direction
+  direction: 'bullish' | 'bearish' | 'mixed';
+  rsiAligned:  boolean;
+  macdAligned: boolean;
+  obvAligned:  boolean;
+  gated: boolean;         // true when ≥2 indicators agree — safe to enter
+}
+
 export interface IndicatorResult {
   symbol: string;
   current: number;
@@ -155,6 +164,7 @@ export interface IndicatorResult {
   trend: number;
   roc: number | null;
   cci: number | null;
+  confluence: ConfluenceResult;
   score: number;
   action: AIAction;
   confidence: number;

@@ -3,7 +3,8 @@
 
 import {
   IndicatorResult, MACDResult, BollingerBands,
-  StochasticResult, SupportResistance, VolumeSignal, AIAction, OBVResult
+  StochasticResult, SupportResistance, VolumeSignal, AIAction, OBVResult,
+  ConfluenceResult,
 } from '../types/index';
 import { getPrices, getVolume } from '../market/engine';
 import { cci } from './cci';
@@ -177,6 +178,39 @@ export function obv(prices: number[], volume: number[]): OBVResult | null {
   return { value: series[series.length - 1], trend };
 }
 
+// ── Three-way confluence gate ─────────────────────────────────────
+// 2026 quant best practice: only enter a position when RSI, MACD, and OBV
+// all vote the same direction. Single-indicator signals have too many
+// false positives. Require ≥2 of 3 to agree before marking gated=true.
+export function computeConfluence(prices: number[], volume: number[]): ConfluenceResult {
+  const rsiVal  = rsi(prices);
+  const macdVal = macd(prices);
+  const obvVal  = obv(prices, volume);
+
+  const rsiIsBull  = rsiVal !== null && rsiVal < 50;
+  const rsiIsBear  = rsiVal !== null && rsiVal > 50;
+  const macdIsBull = macdVal !== null && macdVal.histogram > 0 && macdVal.macd > 0;
+  const macdIsBear = macdVal !== null && macdVal.histogram < 0 && macdVal.macd < 0;
+  const obvIsBull  = obvVal !== null && obvVal.trend === 'rising';
+  const obvIsBear  = obvVal !== null && obvVal.trend === 'falling';
+
+  const bullCount = [rsiIsBull, macdIsBull, obvIsBull].filter(Boolean).length;
+  const bearCount = [rsiIsBear, macdIsBear, obvIsBear].filter(Boolean).length;
+
+  const direction: ConfluenceResult['direction'] =
+    bullCount >= 2 ? 'bullish' : bearCount >= 2 ? 'bearish' : 'mixed';
+  const score = Math.max(bullCount, bearCount);
+
+  return {
+    score,
+    direction,
+    rsiAligned:  direction === 'bullish' ? rsiIsBull  : rsiIsBear,
+    macdAligned: direction === 'bullish' ? macdIsBull : macdIsBear,
+    obvAligned:  direction === 'bullish' ? obvIsBull  : obvIsBear,
+    gated:       score >= 2,
+  };
+}
+
 // ── Full composite signal ─────────────────────────────────────────
 export function compute(symbol: string): IndicatorResult | null {
   const prices = getPrices(symbol);
@@ -289,6 +323,22 @@ export function compute(symbol: string): IndicatorResult | null {
   else if (score <= -35) { action = 'SELL'; confidence = Math.min(95, 40 + Math.abs(score) * 0.55); }
   else                   { action = 'HOLD'; confidence = Math.max(20, 50 - Math.abs(score)); }
 
+  const confluenceVal = computeConfluence(prices, volume);
+
+  // Confluence gate: boost score when all 3 signals agree; dampen when mixed
+  if (confluenceVal.gated && confluenceVal.direction === 'bullish' && score > 0) {
+    score = Math.min(100, score * 1.15);
+    reasons.push(`3-way confluence: RSI+MACD+OBV all bullish (score: ${confluenceVal.score}/3)`);
+  } else if (confluenceVal.gated && confluenceVal.direction === 'bearish' && score < 0) {
+    score = Math.max(-100, score * 1.15);
+    reasons.push(`3-way confluence: RSI+MACD+OBV all bearish (score: ${confluenceVal.score}/3)`);
+  } else if (!confluenceVal.gated) {
+    score = score * 0.85;
+    reasons.push(`Confluence weak (${confluenceVal.score}/3 indicators agree) — signal dampened`);
+  }
+
+  score = Math.max(-100, Math.min(100, score));
+
   const atrFactor = atrVal ?? current * 0.01;
   const target = action === 'BUY'
     ? parseFloat((current + atrFactor * 2.5).toFixed(6))
@@ -307,6 +357,7 @@ export function compute(symbol: string): IndicatorResult | null {
     ema9: ema9Val, ema21: ema21Val, ema50: ema50Val,
     atr: atrVal, stoch, volSig, obv: obvVal, sr, trend,
     roc: rocVal, cci: cciVal,
+    confluence: confluenceVal,
     score: parseFloat(score.toFixed(2)),
     action, confidence: parseFloat(confidence.toFixed(1)),
     target, stopLoss, reasons,
