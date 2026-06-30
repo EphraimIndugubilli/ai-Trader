@@ -260,14 +260,18 @@ async function executeDecision(
     });
 
     if (result.ok && result.position) {
+      const filledAmount = result.position.amountUSDT;
+      const sizeNote = filledAmount < amount
+        ? ` (sized down from $${amount.toFixed(2)} by risk rules)`
+        : '';
       emit(
-        `EXECUTED: ${action} ${symbol} $${amount.toFixed(2)} @ $${result.position.price} | ` +
+        `EXECUTED: ${action} ${symbol} $${filledAmount.toFixed(2)} @ $${result.position.price}${sizeNote} | ` +
         `SL: ${stopLoss?.toFixed(2) ?? '—'} | TP: ${takeProfit?.toFixed(2) ?? '—'}`,
         'exec'
       );
       logSpan({
         traceId, name: 'order_execute',
-        output: { action, symbol, amount, price: result.position.price },
+        output: { action, symbol, requestedAmount: amount, amount: filledAmount, price: result.position.price },
       });
     } else {
       emit(`Order failed: ${result.error}`, 'warn');
