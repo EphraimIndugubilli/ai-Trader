@@ -218,6 +218,11 @@ export function compute(symbol: string): IndicatorResult | null {
   if (prices.length < 30) return null;
 
   const rsiVal    = rsi(prices);
+  // 2026 crypto-trading research: traders shorten RSI from the classic
+  // 14-period to 9 (or 11) to react faster to crypto's higher volatility.
+  // Used here as a fast confirmation signal alongside the standard RSI,
+  // not a replacement — the 14-period stays the primary read.
+  const rsiFastVal = rsi(prices, 9);
   const macdVal   = macd(prices);
   const bb        = bollingerBands(prices);
   const ema9Val   = ema(prices, 9);
@@ -243,6 +248,20 @@ export function compute(symbol: string): IndicatorResult | null {
     else if (rsiVal < 40) { score += 15; reasons.push(`RSI low (${rsiVal.toFixed(1)})`); }
     else if (rsiVal > 70) { score -= 30; reasons.push(`RSI overbought (${rsiVal.toFixed(1)})`); }
     else if (rsiVal > 60) { score -= 15; reasons.push(`RSI high (${rsiVal.toFixed(1)})`); }
+  }
+
+  // Fast RSI(9) confirmation — agrees with RSI(14) on extremes -> stronger
+  // signal; disagrees -> the move may just be short-term noise, dampen it.
+  if (rsiVal !== null && rsiFastVal !== null) {
+    const slowExtreme = rsiVal < 35 ? 'oversold' : rsiVal > 65 ? 'overbought' : null;
+    const fastExtreme = rsiFastVal < 35 ? 'oversold' : rsiFastVal > 65 ? 'overbought' : null;
+    if (slowExtreme && fastExtreme === slowExtreme) {
+      score += slowExtreme === 'oversold' ? 8 : -8;
+      reasons.push(`RSI(9) confirms RSI(14) ${slowExtreme} (${rsiFastVal.toFixed(1)})`);
+    } else if (slowExtreme && fastExtreme !== slowExtreme) {
+      score *= 0.9;
+      reasons.push(`RSI(9) (${rsiFastVal.toFixed(1)}) doesn't confirm RSI(14) — signal may be noise`);
+    }
   }
 
   if (macdVal) {
@@ -353,7 +372,7 @@ export function compute(symbol: string): IndicatorResult | null {
 
   return {
     symbol, current,
-    rsi: rsiVal, macd: macdVal, bb,
+    rsi: rsiVal, rsiFast: rsiFastVal, macd: macdVal, bb,
     ema9: ema9Val, ema21: ema21Val, ema50: ema50Val,
     atr: atrVal, stoch, volSig, obv: obvVal, sr, trend,
     roc: rocVal, cci: cciVal,

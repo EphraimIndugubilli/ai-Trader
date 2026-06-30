@@ -60,7 +60,7 @@ export async function runCycle(): Promise<void> {
       analyses.push(analysis);
       const cf = analysis.confluence;
       emit(
-        `${pair.symbol}: RSI=${analysis.rsi?.toFixed(1)} | ` +
+        `${pair.symbol}: RSI=${analysis.rsi?.toFixed(1)} (9p=${analysis.rsiFast?.toFixed(1) ?? 'N/A'}) | ` +
         `MACD=${analysis.macd ? (analysis.macd.histogram > 0 ? 'BULL' : 'BEAR') : 'N/A'} | ` +
         `OBV=${analysis.obv?.trend ?? 'N/A'} | ` +
         `Confluence=${cf.score}/3 ${cf.gated ? '✓' : '✗'} ${cf.direction} | ` +

@@ -151,6 +151,7 @@ export interface IndicatorResult {
   symbol: string;
   current: number;
   rsi: number | null;
+  rsiFast: number | null;
   macd: MACDResult | null;
   bb: BollingerBands | null;
   ema9: number | null;
