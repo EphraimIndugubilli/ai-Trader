@@ -396,6 +396,8 @@ function buildPrompt(
     `MACD=${a.macd ? (a.macd.histogram > 0 ? 'bullish' : 'bearish') : 'N/A'} | ` +
     `EMA9=${a.ema9?.toFixed(2)} vs EMA21=${a.ema21?.toFixed(2)} | ` +
     `BB=[${a.bb?.lower?.toFixed(2)}, ${a.bb?.upper?.toFixed(2)}] | ` +
+    `CCI=${a.cci !== null && a.cci !== undefined ? a.cci.toFixed(0) : 'N/A'} | ` +
+    `ROC=${a.roc !== null && a.roc !== undefined ? (a.roc > 0 ? '+' : '') + a.roc.toFixed(2) + '%' : 'N/A'} | ` +
     `ATR=${a.atr?.toFixed(5)} | Score=${a.score > 0 ? '+' : ''}${a.score.toFixed(0)} | Vol=${a.volSig}`
   ).join('\n');
 
