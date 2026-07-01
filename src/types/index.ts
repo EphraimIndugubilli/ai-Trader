@@ -147,6 +147,15 @@ export interface ConfluenceResult {
   gated: boolean;         // true when ≥2 indicators agree — safe to enter
 }
 
+export type ADXTrend = 'strong' | 'moderate' | 'weak';
+
+export interface ADXResult {
+  adx: number;
+  plusDI: number;
+  minusDI: number;
+  trend: ADXTrend;
+}
+
 export interface IndicatorResult {
   symbol: string;
   current: number;
@@ -161,6 +170,7 @@ export interface IndicatorResult {
   stoch: StochasticResult | null;
   volSig: VolumeSignal;
   obv: OBVResult | null;
+  adx: ADXResult | null;
   sr: SupportResistance;
   trend: number;
   roc: number | null;

@@ -4,10 +4,11 @@
 import {
   IndicatorResult, MACDResult, BollingerBands,
   StochasticResult, SupportResistance, VolumeSignal, AIAction, OBVResult,
-  ConfluenceResult,
+  ConfluenceResult, ADXResult,
 } from '../types/index';
 import { getPrices, getVolume } from '../market/engine';
 import { cci } from './cci';
+import { adx as computeADX } from './adx';
 
 // ── Williams %R ────────────────────────────────────────────────────
 export function williamsR(prices: number[], period = 14): number | null {
@@ -238,6 +239,7 @@ export function compute(symbol: string): IndicatorResult | null {
   const sr        = supportResistance(prices);
   const trend     = trendStrength(prices);
   const cciVal    = cci(prices);
+  const adxVal    = computeADX(prices);
   const current   = prices[prices.length - 1];
 
   let score = 0;
@@ -334,6 +336,23 @@ export function compute(symbol: string): IndicatorResult | null {
     }
   }
 
+  // ADX trend-strength gate — 2026 quant discipline: oscillators lie in
+  // ranging markets. ADX < 15 means no meaningful trend exists, so RSI/MACD
+  // crossovers are noise. ADX > 25 confirms the market is in a directional
+  // trend, making those same signals significantly more reliable.
+  if (adxVal) {
+    if (adxVal.trend === 'strong') {
+      const boost = score > 0 ? Math.min(100, score * 1.12) : Math.max(-100, score * 1.12);
+      if (Math.abs(boost) > Math.abs(score)) {
+        score = boost;
+        reasons.push(`ADX ${adxVal.adx.toFixed(1)} — strong trend confirms directional bias (+12% signal boost)`);
+      }
+    } else if (adxVal.trend === 'weak') {
+      score = score * 0.80;
+      reasons.push(`ADX ${adxVal.adx.toFixed(1)} — weak/ranging market, oscillator signals less reliable (−20% dampen)`);
+    }
+  }
+
   score = Math.max(-100, Math.min(100, score));
 
   let action: AIAction = 'HOLD';
@@ -374,7 +393,7 @@ export function compute(symbol: string): IndicatorResult | null {
     symbol, current,
     rsi: rsiVal, rsiFast: rsiFastVal, macd: macdVal, bb,
     ema9: ema9Val, ema21: ema21Val, ema50: ema50Val,
-    atr: atrVal, stoch, volSig, obv: obvVal, sr, trend,
+    atr: atrVal, stoch, volSig, obv: obvVal, adx: adxVal, sr, trend,
     roc: rocVal, cci: cciVal,
     confluence: confluenceVal,
     score: parseFloat(score.toFixed(2)),

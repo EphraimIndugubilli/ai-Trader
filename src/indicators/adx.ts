@@ -1,12 +1,7 @@
 // Average Directional Index — measures trend strength, not direction.
 // ADX > 25 = strong trend; ADX < 20 = weak/ranging market.
 
-export interface ADXResult {
-  adx: number;
-  plusDI: number;
-  minusDI: number;
-  trend: 'strong' | 'moderate' | 'weak';
-}
+import { ADXResult } from '../types/index';
 
 export function adx(prices: number[], period = 14): ADXResult | null {
   if (prices.length < period * 2) return null;
