@@ -121,6 +121,14 @@ export interface BollingerBands {
   bandwidth: number;
 }
 
+export interface BBSqueezeResult {
+  squeeze: boolean;
+  intensity: number;          // 0-100: how far below avg bandwidth (0 = no squeeze)
+  currentBandwidth: number;
+  avgBandwidth: number;
+  minBandwidth: number;       // 40-period low — floor of recent compression
+}
+
 export interface StochasticResult {
   k: number;
   d: number;
@@ -163,6 +171,7 @@ export interface IndicatorResult {
   rsiFast: number | null;
   macd: MACDResult | null;
   bb: BollingerBands | null;
+  bbSqueeze: BBSqueezeResult | null;
   ema9: number | null;
   ema21: number | null;
   ema50: number | null;

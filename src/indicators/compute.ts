@@ -4,7 +4,7 @@
 import {
   IndicatorResult, MACDResult, BollingerBands,
   StochasticResult, SupportResistance, VolumeSignal, AIAction, OBVResult,
-  ConfluenceResult, ADXResult,
+  ConfluenceResult, ADXResult, BBSqueezeResult,
 } from '../types/index';
 import { getPrices, getVolume } from '../market/engine';
 import { cci } from './cci';
@@ -88,9 +88,39 @@ export function atr(prices: number[], period = 14): number | null {
   return parseFloat((sumTR / period).toFixed(8));
 }
 
+// ── Bollinger Band Squeeze ────────────────────────────────────────
+// Trending 2026 quant signal: bands narrow (low bandwidth) before explosive
+// moves because volatility contracts before it expands. A squeeze fires when
+// current bandwidth drops below 85% of its own 40-period rolling average,
+// meaning volatility is coiling — a significant directional move is likely.
+// intensity (0-100) shows how deep into the squeeze we are.
+export function bbSqueeze(prices: number[], period = 20, lookback = 40): BBSqueezeResult | null {
+  if (prices.length < period + lookback) return null;
+  const bwHistory: number[] = [];
+  for (let i = period; i <= prices.length; i++) {
+    const sl = prices.slice(i - period, i);
+    const mean = sl.reduce((a, b) => a + b, 0) / period;
+    const std  = Math.sqrt(sl.reduce((a, b) => a + (b - mean) ** 2, 0) / period);
+    if (mean > 0) bwHistory.push((4 * std) / mean * 100);
+  }
+  if (bwHistory.length < lookback) return null;
+  const recent      = bwHistory.slice(-lookback);
+  const avgBw       = recent.reduce((a, b) => a + b, 0) / recent.length;
+  const currentBw   = recent[recent.length - 1];
+  const minBw       = Math.min(...recent);
+  const squeeze     = currentBw < avgBw * 0.85;
+  const intensity   = squeeze ? Math.round((1 - currentBw / avgBw) * 100) : 0;
+  return {
+    squeeze,
+    intensity,
+    currentBandwidth: parseFloat(currentBw.toFixed(4)),
+    avgBandwidth:     parseFloat(avgBw.toFixed(4)),
+    minBandwidth:     parseFloat(minBw.toFixed(4)),
+  };
+}
+
 export function stochastic(prices: number[], kPeriod = 14, dPeriod = 3): StochasticResult | null {
   if (prices.length < kPeriod + dPeriod - 1) return null;
-  // Compute dPeriod consecutive %K values then average them for %D (slow stochastic)
   const ks: number[] = [];
   for (let offset = dPeriod - 1; offset >= 0; offset--) {
     const end   = prices.length - offset;
@@ -231,6 +261,7 @@ export function compute(symbol: string): IndicatorResult | null {
   // Used here as a fast confirmation signal alongside the standard RSI,
   // not a replacement — the 14-period stays the primary read.
   const rsiFastVal = rsi(prices, 9);
+  const bbSqueezeVal = bbSqueeze(prices);
   const macdVal   = macd(prices);
   const bb        = bollingerBands(prices);
   const ema9Val   = ema(prices, 9);
@@ -302,6 +333,22 @@ export function compute(symbol: string): IndicatorResult | null {
   if (bb) {
     if      (current < bb.lower) { score += 15; reasons.push('Price below lower BB (mean reversion)'); }
     else if (current > bb.upper) { score -= 15; reasons.push('Price above upper BB (mean reversion)'); }
+  }
+
+  // Bollinger Band Squeeze — 2026 breakout-coiling detector.
+  // Narrow bands = compressed volatility about to expand. Boost the existing
+  // directional score when a squeeze is active: the coming move is likely
+  // larger than usual, so the signal deserves more weight. Dampen score
+  // when bands are very wide (already expanded) to avoid chasing.
+  if (bbSqueezeVal) {
+    if (bbSqueezeVal.squeeze && bbSqueezeVal.intensity >= 15) {
+      const boost = Math.min(12, bbSqueezeVal.intensity * 0.5);
+      score += score > 0 ? boost : score < 0 ? -boost : 0;
+      reasons.push(`BB Squeeze active (intensity ${bbSqueezeVal.intensity}%, BW ${bbSqueezeVal.currentBandwidth.toFixed(2)}%) — breakout coiling, amplifying directional signal`);
+    } else if (!bbSqueezeVal.squeeze && bbSqueezeVal.currentBandwidth > bbSqueezeVal.avgBandwidth * 1.5) {
+      score *= 0.88;
+      reasons.push(`BB bands wide (BW ${bbSqueezeVal.currentBandwidth.toFixed(2)}% > 1.5× avg) — volatility already expanded, mean reversion risk dampens signal`);
+    }
   }
 
   if (stoch) {
@@ -404,7 +451,7 @@ export function compute(symbol: string): IndicatorResult | null {
 
   return {
     symbol, current,
-    rsi: rsiVal, rsiFast: rsiFastVal, macd: macdVal, bb,
+    rsi: rsiVal, rsiFast: rsiFastVal, macd: macdVal, bb, bbSqueeze: bbSqueezeVal,
     ema9: ema9Val, ema21: ema21Val, ema50: ema50Val,
     atr: atrVal, stoch, volSig, obv: obvVal, adx: adxVal, sr, trend,
     roc: rocVal, cci: cciVal,
