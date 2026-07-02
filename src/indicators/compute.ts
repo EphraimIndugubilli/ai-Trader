@@ -88,14 +88,21 @@ export function atr(prices: number[], period = 14): number | null {
   return parseFloat((sumTR / period).toFixed(8));
 }
 
-export function stochastic(prices: number[], kPeriod = 14): StochasticResult | null {
-  if (prices.length < kPeriod) return null;
-  const slice   = prices.slice(-kPeriod);
-  const highest = Math.max(...slice);
-  const lowest  = Math.min(...slice);
-  if (highest === lowest) return { k: 50, d: 50 };
-  const k = ((slice[slice.length - 1] - lowest) / (highest - lowest)) * 100;
-  return { k: parseFloat(k.toFixed(2)), d: parseFloat(k.toFixed(2)) };
+export function stochastic(prices: number[], kPeriod = 14, dPeriod = 3): StochasticResult | null {
+  if (prices.length < kPeriod + dPeriod - 1) return null;
+  // Compute dPeriod consecutive %K values then average them for %D (slow stochastic)
+  const ks: number[] = [];
+  for (let offset = dPeriod - 1; offset >= 0; offset--) {
+    const end   = prices.length - offset;
+    const slice = prices.slice(end - kPeriod, end);
+    const highest = Math.max(...slice);
+    const lowest  = Math.min(...slice);
+    if (highest === lowest) { ks.push(50); continue; }
+    ks.push(((slice[slice.length - 1] - lowest) / (highest - lowest)) * 100);
+  }
+  const k = ks[ks.length - 1];
+  const d = ks.reduce((a, b) => a + b, 0) / ks.length;
+  return { k: parseFloat(k.toFixed(2)), d: parseFloat(d.toFixed(2)) };
 }
 
 export function volumeSignal(volume: number[]): VolumeSignal {
@@ -298,8 +305,14 @@ export function compute(symbol: string): IndicatorResult | null {
   }
 
   if (stoch) {
-    if      (stoch.k < 20) { score += 10; reasons.push(`Stoch oversold (${stoch.k})`); }
-    else if (stoch.k > 80) { score -= 10; reasons.push(`Stoch overbought (${stoch.k})`); }
+    if      (stoch.k < 20) { score += 10; reasons.push(`Stoch oversold (K=${stoch.k})`); }
+    else if (stoch.k > 80) { score -= 10; reasons.push(`Stoch overbought (K=${stoch.k})`); }
+    // K/D crossover: bullish when K rises above D from oversold; bearish when K falls below D from overbought
+    if (stoch.k > stoch.d && stoch.k < 40) {
+      score += 8; reasons.push(`Stoch bullish K/D crossover (K=${stoch.k} > D=${stoch.d}) from low zone`);
+    } else if (stoch.k < stoch.d && stoch.k > 60) {
+      score -= 8; reasons.push(`Stoch bearish K/D crossover (K=${stoch.k} < D=${stoch.d}) from high zone`);
+    }
   }
 
   // Williams %R
