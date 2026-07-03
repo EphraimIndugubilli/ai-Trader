@@ -164,6 +164,16 @@ export interface ADXResult {
   trend: ADXTrend;
 }
 
+export interface VWAPResult {
+  vwap: number;
+  upperBand1: number;   // VWAP + 1σ
+  lowerBand1: number;   // VWAP − 1σ
+  upperBand2: number;   // VWAP + 2σ
+  lowerBand2: number;   // VWAP − 2σ
+  deviation: number;    // current price deviation from VWAP as a % (positive = above)
+  zone: 'above_2sd' | 'above_1sd' | 'near_vwap' | 'below_1sd' | 'below_2sd';
+}
+
 export interface IndicatorResult {
   symbol: string;
   current: number;
@@ -180,6 +190,7 @@ export interface IndicatorResult {
   volSig: VolumeSignal;
   obv: OBVResult | null;
   adx: ADXResult | null;
+  vwap: VWAPResult | null;
   sr: SupportResistance;
   trend: number;
   roc: number | null;

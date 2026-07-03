@@ -4,7 +4,7 @@
 import {
   IndicatorResult, MACDResult, BollingerBands,
   StochasticResult, SupportResistance, VolumeSignal, AIAction, OBVResult,
-  ConfluenceResult, ADXResult, BBSqueezeResult,
+  ConfluenceResult, ADXResult, BBSqueezeResult, VWAPResult,
 } from '../types/index';
 import { getPrices, getVolume } from '../market/engine';
 import { cci } from './cci';
@@ -216,6 +216,59 @@ export function obv(prices: number[], volume: number[]): OBVResult | null {
   return { value: series[series.length - 1], trend };
 }
 
+// ── VWAP with Standard Deviation Bands ───────────────────────────
+// VWAP is the #1 institutional benchmark in 2026: it weights each price by
+// its traded volume over the session, producing an average that reflects
+// where real money transacted. Algo desks and market makers reference it
+// for fair-value anchoring; retail overpaying above 2σ is a classic fade
+// setup. SD bands (±1σ, ±2σ) turn it into a dynamic range filter:
+// price hugging VWAP → balanced order flow; price above +2σ → stretched,
+// institutional sellers likely activate. Computed over the available
+// price/volume window as a session-anchored rolling calculation.
+export function vwap(prices: number[], volume: number[]): VWAPResult | null {
+  const len = Math.min(prices.length, volume.length);
+  if (len < 10) return null;
+
+  let cumVolume = 0, cumVolumePrice = 0;
+  const tpv: number[] = [];
+  for (let i = 0; i < len; i++) {
+    const tp = prices[i];
+    cumVolumePrice += tp * volume[i];
+    cumVolume += volume[i];
+    tpv.push(tp * volume[i]);
+  }
+  if (cumVolume === 0) return null;
+
+  const vwapVal = cumVolumePrice / cumVolume;
+
+  // Compute volume-weighted standard deviation
+  let varianceSum = 0;
+  for (let i = 0; i < len; i++) {
+    varianceSum += volume[i] * (prices[i] - vwapVal) ** 2;
+  }
+  const sd = Math.sqrt(varianceSum / cumVolume);
+
+  const current = prices[len - 1];
+  const deviation = parseFloat(((current - vwapVal) / vwapVal * 100).toFixed(4));
+
+  let zone: VWAPResult['zone'];
+  if (current > vwapVal + 2 * sd)       zone = 'above_2sd';
+  else if (current > vwapVal + sd)       zone = 'above_1sd';
+  else if (current < vwapVal - 2 * sd)   zone = 'below_2sd';
+  else if (current < vwapVal - sd)       zone = 'below_1sd';
+  else                                    zone = 'near_vwap';
+
+  return {
+    vwap:       parseFloat(vwapVal.toFixed(6)),
+    upperBand1: parseFloat((vwapVal + sd).toFixed(6)),
+    lowerBand1: parseFloat((vwapVal - sd).toFixed(6)),
+    upperBand2: parseFloat((vwapVal + 2 * sd).toFixed(6)),
+    lowerBand2: parseFloat((vwapVal - 2 * sd).toFixed(6)),
+    deviation,
+    zone,
+  };
+}
+
 // ── Three-way confluence gate ─────────────────────────────────────
 // 2026 quant best practice: only enter a position when RSI, MACD, and OBV
 // all vote the same direction. Single-indicator signals have too many
@@ -278,6 +331,7 @@ export function compute(symbol: string): IndicatorResult | null {
   const trend     = trendStrength(prices);
   const cciVal    = cci(prices);
   const adxVal    = computeADX(prices);
+  const vwapVal   = vwap(prices, volume);
   const current   = prices[prices.length - 1];
 
   let score = 0;
@@ -413,6 +467,24 @@ export function compute(symbol: string): IndicatorResult | null {
     }
   }
 
+  // VWAP deviation signal — 2026 institutional benchmark.
+  // Price above +2σ = stretched above fair value → fade/sell lean.
+  // Price below −2σ = over-extended below fair value → mean-reversion buy lean.
+  // Near VWAP (±1σ) = balanced; no VWAP edge, apply small confidence dampener.
+  if (vwapVal) {
+    if (vwapVal.zone === 'below_2sd') {
+      score += 18; reasons.push(`VWAP: price ${Math.abs(vwapVal.deviation).toFixed(2)}% below −2σ band — institutional mean-reversion buy zone`);
+    } else if (vwapVal.zone === 'below_1sd') {
+      score += 9; reasons.push(`VWAP: price below −1σ (${vwapVal.deviation.toFixed(2)}% from VWAP) — demand zone`);
+    } else if (vwapVal.zone === 'above_2sd') {
+      score -= 18; reasons.push(`VWAP: price ${vwapVal.deviation.toFixed(2)}% above +2σ band — stretched, institutional fade zone`);
+    } else if (vwapVal.zone === 'above_1sd') {
+      score -= 9; reasons.push(`VWAP: price above +1σ (${vwapVal.deviation.toFixed(2)}% from VWAP) — supply zone`);
+    } else {
+      score *= 0.95; reasons.push(`VWAP: price near fair value (${vwapVal.deviation > 0 ? '+' : ''}${vwapVal.deviation.toFixed(2)}%) — no VWAP edge`);
+    }
+  }
+
   score = Math.max(-100, Math.min(100, score));
 
   let action: AIAction = 'HOLD';
@@ -453,7 +525,7 @@ export function compute(symbol: string): IndicatorResult | null {
     symbol, current,
     rsi: rsiVal, rsiFast: rsiFastVal, macd: macdVal, bb, bbSqueeze: bbSqueezeVal,
     ema9: ema9Val, ema21: ema21Val, ema50: ema50Val,
-    atr: atrVal, stoch, volSig, obv: obvVal, adx: adxVal, sr, trend,
+    atr: atrVal, stoch, volSig, obv: obvVal, adx: adxVal, vwap: vwapVal, sr, trend,
     roc: rocVal, cci: cciVal,
     confluence: confluenceVal,
     score: parseFloat(score.toFixed(2)),
