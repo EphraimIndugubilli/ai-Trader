@@ -337,12 +337,24 @@ function calcAtrPositionSize(
 }
 
 // ── Best opportunity selector ─────────────────────────────────────
+// Gated signals (≥2 of RSI+MACD+OBV agree) are preferred over ungated ones
+// because they have lower false-positive rates. Within each tier, rank by
+// |score| × confidence so the highest-conviction trade surfaces first.
 function selectBestOpportunity(analyses: IndicatorResult[]): IndicatorResult | undefined {
   const positions = getPositions();
-  return analyses
+  const available = analyses
     .filter(a => a.action !== 'HOLD')
-    .sort((a, b) => Math.abs(b.score) * b.confidence - Math.abs(a.score) * a.confidence)
-    .find(a => !positions.some(p => p.symbol === a.symbol));
+    .filter(a => !positions.some(p => p.symbol === a.symbol));
+
+  // First pass: gated signals only (multi-indicator confluence confirmed)
+  const gated = available
+    .filter(a => a.confluence.gated)
+    .sort((a, b) => Math.abs(b.score) * b.confidence - Math.abs(a.score) * a.confidence);
+  if (gated.length > 0) return gated[0];
+
+  // Fallback: best ungated signal when no gated opportunity exists
+  return available
+    .sort((a, b) => Math.abs(b.score) * b.confidence - Math.abs(a.score) * a.confidence)[0];
 }
 
 // ── JSON extractor ────────────────────────────────────────────────
