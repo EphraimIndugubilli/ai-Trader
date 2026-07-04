@@ -174,6 +174,17 @@ export interface VWAPResult {
   zone: 'above_2sd' | 'above_1sd' | 'near_vwap' | 'below_1sd' | 'below_2sd';
 }
 
+export type SuperTrendDirection = 'bullish' | 'bearish';
+
+export interface SuperTrendResult {
+  value: number;               // current band value (support if bullish, resistance if bearish)
+  direction: SuperTrendDirection;
+  distPct: number;             // price distance from SuperTrend line as % (positive = above)
+  justFlipped: boolean;        // true if direction changed on the last bar
+  period: number;
+  multiplier: number;
+}
+
 export interface IndicatorResult {
   symbol: string;
   current: number;
@@ -191,6 +202,7 @@ export interface IndicatorResult {
   obv: OBVResult | null;
   adx: ADXResult | null;
   vwap: VWAPResult | null;
+  superTrend: SuperTrendResult | null;
   sr: SupportResistance;
   trend: number;
   roc: number | null;

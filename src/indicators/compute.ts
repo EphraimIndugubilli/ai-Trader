@@ -4,7 +4,7 @@
 import {
   IndicatorResult, MACDResult, BollingerBands,
   StochasticResult, SupportResistance, VolumeSignal, AIAction, OBVResult,
-  ConfluenceResult, ADXResult, BBSqueezeResult, VWAPResult,
+  ConfluenceResult, ADXResult, BBSqueezeResult, VWAPResult, SuperTrendResult,
 } from '../types/index';
 import { getPrices, getVolume } from '../market/engine';
 import { cci } from './cci';
@@ -269,6 +269,68 @@ export function vwap(prices: number[], volume: number[]): VWAPResult | null {
   };
 }
 
+// ── SuperTrend ────────────────────────────────────────────────────
+// 2026 crypto research: "SuperTrend or EMA" is the recommended primary trend
+// filter in the Triple Threat setup. Uses ATR to set a dynamic band that
+// hugs price from below (bull) or above (bear) and flips side on crossover.
+// period=10, multiplier=3 are the widely-used defaults for crypto daily data.
+// Only close prices are used (no OHLC) — standard for streaming tick data.
+export function superTrend(prices: number[], period = 10, multiplier = 3): SuperTrendResult | null {
+  if (prices.length < period + 2) return null;
+
+  // Rolling ATR from consecutive close differences
+  const trArr = prices.slice(1).map((p, i) => Math.abs(p - prices[i]));
+  const atrSeries: (number | null)[] = [];
+  for (let i = 0; i < trArr.length; i++) {
+    if (i < period - 1) { atrSeries.push(null); continue; }
+    const slice = trArr.slice(i - period + 1, i + 1);
+    atrSeries.push(slice.reduce((a, b) => a + b, 0) / period);
+  }
+
+  const upperBands: (number | null)[] = new Array(prices.length).fill(null);
+  const lowerBands: (number | null)[] = new Array(prices.length).fill(null);
+  const direction:  (1 | -1 | null)[] = new Array(prices.length).fill(null);
+  const stLine:     (number | null)[] = new Array(prices.length).fill(null);
+
+  for (let i = period; i < prices.length; i++) {
+    const atrVal = atrSeries[i - 1];
+    if (atrVal === null) continue;
+
+    const basicUpper = prices[i] + multiplier * atrVal;
+    const basicLower = prices[i] - multiplier * atrVal;
+
+    const prevUpper = upperBands[i - 1];
+    const prevLower = lowerBands[i - 1];
+
+    upperBands[i] = (prevUpper === null || basicUpper < prevUpper || prices[i - 1] > prevUpper)
+      ? basicUpper : prevUpper;
+    lowerBands[i] = (prevLower === null || basicLower > prevLower || prices[i - 1] < prevLower)
+      ? basicLower : prevLower;
+
+    const prevDir = direction[i - 1] ?? 1;
+    if (prevDir === -1 && prices[i] > (upperBands[i] as number)) {
+      direction[i] = 1;
+    } else if (prevDir === 1 && prices[i] < (lowerBands[i] as number)) {
+      direction[i] = -1;
+    } else {
+      direction[i] = prevDir;
+    }
+    stLine[i] = direction[i] === 1 ? lowerBands[i] : upperBands[i];
+  }
+
+  const last = prices.length - 1;
+  const lastDir = direction[last];
+  if (lastDir === null || stLine[last] === null) return null;
+
+  const value   = parseFloat((stLine[last] as number).toFixed(6));
+  const current = prices[last];
+  const isBull  = lastDir === 1;
+  const distPct = parseFloat(((current - value) / value * 100).toFixed(4));
+  const justFlipped = last > 0 && direction[last] !== direction[last - 1] && direction[last - 1] !== null;
+
+  return { value, direction: isBull ? 'bullish' : 'bearish', distPct, justFlipped, period, multiplier };
+}
+
 // ── Three-way confluence gate ─────────────────────────────────────
 // 2026 quant best practice: only enter a position when RSI, MACD, and OBV
 // all vote the same direction. Single-indicator signals have too many
@@ -332,6 +394,7 @@ export function compute(symbol: string): IndicatorResult | null {
   const cciVal    = cci(prices);
   const adxVal    = computeADX(prices);
   const vwapVal   = vwap(prices, volume);
+  const stVal     = superTrend(prices);
   const current   = prices[prices.length - 1];
 
   let score = 0;
@@ -485,6 +548,28 @@ export function compute(symbol: string): IndicatorResult | null {
     }
   }
 
+  // SuperTrend trend-direction gate — 2026 Triple Threat: SuperTrend is the
+  // primary adaptive trend filter. When it aligns with the existing score
+  // direction it amplifies the signal; when it opposes it dampens the score.
+  // A fresh flip (justFlipped=true) is the strongest single-bar signal.
+  if (stVal) {
+    const stBull = stVal.direction === 'bullish';
+    const scoreBull = score > 0;
+    if (stVal.justFlipped) {
+      if (stBull) {
+        score += 20; reasons.push(`SuperTrend just flipped bullish (support ${stVal.value.toFixed(4)}) — highest-conviction trend-reversal buy signal`);
+      } else {
+        score -= 20; reasons.push(`SuperTrend just flipped bearish (resistance ${stVal.value.toFixed(4)}) — highest-conviction trend-reversal sell signal`);
+      }
+    } else if (stBull && scoreBull) {
+      score += 12; reasons.push(`SuperTrend bullish (+${stVal.distPct.toFixed(2)}% above support ${stVal.value.toFixed(4)}) — trend filter confirms long bias`);
+    } else if (!stBull && !scoreBull) {
+      score -= 12; reasons.push(`SuperTrend bearish (${stVal.distPct.toFixed(2)}% below resistance ${stVal.value.toFixed(4)}) — trend filter confirms short bias`);
+    } else {
+      score *= 0.88; reasons.push(`SuperTrend ${stVal.direction} conflicts with oscillator direction — mixed signal, confidence dampened`);
+    }
+  }
+
   score = Math.max(-100, Math.min(100, score));
 
   let action: AIAction = 'HOLD';
@@ -525,7 +610,7 @@ export function compute(symbol: string): IndicatorResult | null {
     symbol, current,
     rsi: rsiVal, rsiFast: rsiFastVal, macd: macdVal, bb, bbSqueeze: bbSqueezeVal,
     ema9: ema9Val, ema21: ema21Val, ema50: ema50Val,
-    atr: atrVal, stoch, volSig, obv: obvVal, adx: adxVal, vwap: vwapVal, sr, trend,
+    atr: atrVal, stoch, volSig, obv: obvVal, adx: adxVal, vwap: vwapVal, superTrend: stVal, sr, trend,
     roc: rocVal, cci: cciVal,
     confluence: confluenceVal,
     score: parseFloat(score.toFixed(2)),
