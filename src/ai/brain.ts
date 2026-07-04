@@ -404,12 +404,16 @@ function buildPrompt(
       }).join('\n');
 
   const mktStr = analyses.map(a =>
-    `${a.symbol}: price=${a.current} | RSI=${a.rsi?.toFixed(1)} | ` +
-    `MACD=${a.macd ? (a.macd.histogram > 0 ? 'bullish' : 'bearish') : 'N/A'} | ` +
+    `${a.symbol}: price=${a.current} | RSI14=${a.rsi?.toFixed(1)} RSI9=${a.rsiFast?.toFixed(1) ?? 'N/A'} | ` +
+    `MACD=${a.macd ? (a.macd.histogram > 0 ? 'bullish' : 'bearish') + `(hist=${a.macd.histogram > 0 ? '+' : ''}${a.macd.histogram.toFixed(5)})` : 'N/A'} | ` +
     `EMA9=${a.ema9?.toFixed(2)} vs EMA21=${a.ema21?.toFixed(2)} | ` +
     `BB=[${a.bb?.lower?.toFixed(2)}, ${a.bb?.upper?.toFixed(2)}] | ` +
+    `BBSqueeze=${a.bbSqueeze ? (a.bbSqueeze.squeeze ? `ACTIVE(${a.bbSqueeze.intensity}%)` : 'off') : 'N/A'} | ` +
     `CCI=${a.cci !== null && a.cci !== undefined ? a.cci.toFixed(0) : 'N/A'} | ` +
     `ROC=${a.roc !== null && a.roc !== undefined ? (a.roc > 0 ? '+' : '') + a.roc.toFixed(2) + '%' : 'N/A'} | ` +
+    `Stoch=${a.stoch ? `K=${a.stoch.k}/D=${a.stoch.d}` : 'N/A'} | ` +
+    `VWAP=${a.vwap ? `${a.vwap.zone}(${a.vwap.deviation > 0 ? '+' : ''}${a.vwap.deviation.toFixed(2)}%)` : 'N/A'} | ` +
+    `ADX=${a.adx ? `${a.adx.adx.toFixed(1)}(${a.adx.trend})` : 'N/A'} | ` +
     `ATR=${a.atr?.toFixed(5)} | Score=${a.score > 0 ? '+' : ''}${a.score.toFixed(0)} | Vol=${a.volSig}`
   ).join('\n');
 
