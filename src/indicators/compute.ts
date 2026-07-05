@@ -331,6 +331,23 @@ export function superTrend(prices: number[], period = 10, multiplier = 3): Super
   return { value, direction: isBull ? 'bullish' : 'bearish', distPct, justFlipped, period, multiplier };
 }
 
+// ── Elder's Force Index ───────────────────────────────────────────
+// EFI = price_change × volume, smoothed with a 13-period EMA.
+// Developed by Alexander Elder; gaining traction in 2026 crypto trading as a
+// compact, volume-weighted momentum signal that confirms buying/selling pressure.
+// Positive EFI = bulls in control; negative = bears. Divergence from price
+// direction is a leading reversal signal (price rises but EFI weakens → topping).
+export function elderForceIndex(prices: number[], volume: number[], period = 13): number | null {
+  const len = Math.min(prices.length, volume.length);
+  if (len < period + 2) return null;
+
+  const rawForce: number[] = [];
+  for (let i = 1; i < len; i++) {
+    rawForce.push((prices[i] - prices[i - 1]) * volume[i]);
+  }
+
+  return ema(rawForce, period);
+}
 // ── Three-way confluence gate ─────────────────────────────────────
 // 2026 quant best practice: only enter a position when RSI, MACD, and OBV
 // all vote the same direction. Single-indicator signals have too many
@@ -395,6 +412,7 @@ export function compute(symbol: string): IndicatorResult | null {
   const adxVal    = computeADX(prices);
   const vwapVal   = vwap(prices, volume);
   const stVal     = superTrend(prices);
+  const efiVal    = elderForceIndex(prices, volume);
   const current   = prices[prices.length - 1];
 
   let score = 0;
@@ -580,6 +598,24 @@ export function compute(symbol: string): IndicatorResult | null {
 
   const confluenceVal = computeConfluence(prices, volume);
 
+  // Elder's Force Index — volume-weighted momentum confirmation.
+  // Aligns with score direction = amplify; diverges = dampen.
+  // Divergence (EFI negative while score positive, or vice versa) is a warning
+  // that buying/selling pressure does not support the price move — reduce confidence.
+  if (efiVal !== null) {
+    const efiBull = efiVal > 0;
+    const scoreBull = score > 0;
+    if (efiBull && scoreBull) {
+      score += 10; reasons.push(`Elder Force Index positive (${efiVal.toFixed(2)}) — volume-weighted buying pressure confirms bullish bias`);
+    } else if (!efiBull && !scoreBull) {
+      score -= 10; reasons.push(`Elder Force Index negative (${efiVal.toFixed(2)}) — volume-weighted selling pressure confirms bearish bias`);
+    } else if (efiBull && !scoreBull) {
+      score *= 0.90; reasons.push(`Elder Force Index positive (${efiVal.toFixed(2)}) vs bearish price action — EFI divergence, confidence dampened`);
+    } else {
+      score *= 0.90; reasons.push(`Elder Force Index negative (${efiVal.toFixed(2)}) vs bullish price action — EFI divergence, confidence dampened`);
+    }
+  }
+
   // Confluence gate: boost score when all 3 signals agree; dampen when mixed
   if (confluenceVal.gated && confluenceVal.direction === 'bullish' && score > 0) {
     score = Math.min(100, score * 1.15);
@@ -611,7 +647,7 @@ export function compute(symbol: string): IndicatorResult | null {
     rsi: rsiVal, rsiFast: rsiFastVal, macd: macdVal, bb, bbSqueeze: bbSqueezeVal,
     ema9: ema9Val, ema21: ema21Val, ema50: ema50Val,
     atr: atrVal, stoch, volSig, obv: obvVal, adx: adxVal, vwap: vwapVal, superTrend: stVal, sr, trend,
-    roc: rocVal, cci: cciVal,
+    roc: rocVal, cci: cciVal, efi: efiVal,
     divergence: diverg,
     confluence: confluenceVal,
     score: parseFloat(score.toFixed(2)),
