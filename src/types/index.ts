@@ -207,6 +207,7 @@ export interface IndicatorResult {
   trend: number;
   roc: number | null;
   cci: number | null;
+  divergence: 'bullish' | 'bearish' | 'none';
   confluence: ConfluenceResult;
   score: number;
   action: AIAction;

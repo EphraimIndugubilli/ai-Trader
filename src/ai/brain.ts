@@ -59,10 +59,13 @@ export async function runCycle(): Promise<void> {
     if (analysis) {
       analyses.push(analysis);
       const cf = analysis.confluence;
+      const divergTag = analysis.divergence !== 'none'
+        ? ` | Div=${analysis.divergence === 'bullish' ? '↑BULL' : '↓BEAR'}`
+        : '';
       emit(
         `${pair.symbol}: RSI=${analysis.rsi?.toFixed(1)} (9p=${analysis.rsiFast?.toFixed(1) ?? 'N/A'}) | ` +
         `MACD=${analysis.macd ? (analysis.macd.histogram > 0 ? 'BULL' : 'BEAR') : 'N/A'} | ` +
-        `OBV=${analysis.obv?.trend ?? 'N/A'} | ` +
+        `OBV=${analysis.obv?.trend ?? 'N/A'}${divergTag} | ` +
         `Confluence=${cf.score}/3 ${cf.gated ? '✓' : '✗'} ${cf.direction} | ` +
         `Score=${analysis.score > 0 ? '+' : ''}${analysis.score.toFixed(0)} | ` +
         `Signal=${analysis.action}`,

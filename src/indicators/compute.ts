@@ -612,6 +612,7 @@ export function compute(symbol: string): IndicatorResult | null {
     ema9: ema9Val, ema21: ema21Val, ema50: ema50Val,
     atr: atrVal, stoch, volSig, obv: obvVal, adx: adxVal, vwap: vwapVal, superTrend: stVal, sr, trend,
     roc: rocVal, cci: cciVal,
+    divergence: diverg,
     confluence: confluenceVal,
     score: parseFloat(score.toFixed(2)),
     action, confidence: parseFloat(confidence.toFixed(1)),
