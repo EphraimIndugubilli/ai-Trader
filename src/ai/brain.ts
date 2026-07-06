@@ -342,22 +342,33 @@ function calcAtrPositionSize(
 // ── Best opportunity selector ─────────────────────────────────────
 // Gated signals (≥2 of RSI+MACD+OBV agree) are preferred over ungated ones
 // because they have lower false-positive rates. Within each tier, rank by
-// |score| × confidence so the highest-conviction trade surfaces first.
+// |score| × confidence × divergenceBonus so the highest-conviction trade
+// surfaces first. A confirming divergence (bullish div on a BUY, bearish div
+// on a SELL) is a leading signal that price is already turning — boost those
+// candidates 1.5× so they beat out purely momentum-driven signals of equal raw
+// score.
+function divergenceBonus(a: IndicatorResult): number {
+  if (a.divergence === 'bullish' && a.action === 'BUY')  return 1.5;
+  if (a.divergence === 'bearish' && a.action === 'SELL') return 1.5;
+  return 1.0;
+}
+
 function selectBestOpportunity(analyses: IndicatorResult[]): IndicatorResult | undefined {
   const positions = getPositions();
   const available = analyses
     .filter(a => a.action !== 'HOLD')
     .filter(a => !positions.some(p => p.symbol === a.symbol));
 
+  const rank = (a: IndicatorResult) => Math.abs(a.score) * a.confidence * divergenceBonus(a);
+
   // First pass: gated signals only (multi-indicator confluence confirmed)
   const gated = available
     .filter(a => a.confluence.gated)
-    .sort((a, b) => Math.abs(b.score) * b.confidence - Math.abs(a.score) * a.confidence);
+    .sort((a, b) => rank(b) - rank(a));
   if (gated.length > 0) return gated[0];
 
   // Fallback: best ungated signal when no gated opportunity exists
-  return available
-    .sort((a, b) => Math.abs(b.score) * b.confidence - Math.abs(a.score) * a.confidence)[0];
+  return available.sort((a, b) => rank(b) - rank(a))[0];
 }
 
 // ── JSON extractor ────────────────────────────────────────────────
