@@ -173,22 +173,76 @@ export function roc(prices: number[], period = 10): number | null {
   return parseFloat((((prices[prices.length - 1] - past) / past) * 100).toFixed(4));
 }
 
-// RSI divergence: bullish if price makes lower low but RSI makes higher low
-export function detectDivergence(prices: number[], period = 14): 'bullish' | 'bearish' | 'none' {
-  if (prices.length < period * 2 + 1) return 'none';
-  const half = Math.floor(prices.length / 2);
-  const firstHalf = prices.slice(0, half);
-  const secondHalf = prices.slice(half);
+// RSI divergence — swing-point based detection with dual RSI periods (14 and 9).
+//
+// 2026 crypto trading research: the classic "compare first half vs second half"
+// approach misses real divergences and fires false ones. Real divergence needs
+// actual swing highs/lows — local price extremes where momentum visibly reversed.
+// Using RSI(9) alongside RSI(14) matters for crypto: shorter periods react faster
+// to the higher volatility, so divergence on BOTH periods is a stronger signal.
+//
+// Returns the more significant divergence when both periods agree; falls back to
+// either alone; returns 'none' when neither detects one.
+export function detectDivergence(
+  prices: number[],
+  period = 14,
+  swingWindow = 5,
+): 'bullish' | 'bearish' | 'none' {
+  if (prices.length < period * 3) return 'none';
 
-  const rsi1 = rsi(firstHalf, period);
-  const rsi2 = rsi(secondHalf, period);
-  if (!rsi1 || !rsi2) return 'none';
+  // Locate swing lows/highs using a fixed left/right window
+  function swingLows(arr: number[]): { idx: number; val: number }[] {
+    const out: { idx: number; val: number }[] = [];
+    for (let i = swingWindow; i < arr.length - swingWindow; i++) {
+      const win = arr.slice(i - swingWindow, i + swingWindow + 1);
+      if (arr[i] === Math.min(...win)) out.push({ idx: i, val: arr[i] });
+    }
+    return out;
+  }
 
-  const price1 = firstHalf[firstHalf.length - 1];
-  const price2 = secondHalf[secondHalf.length - 1];
+  function swingHighs(arr: number[]): { idx: number; val: number }[] {
+    const out: { idx: number; val: number }[] = [];
+    for (let i = swingWindow; i < arr.length - swingWindow; i++) {
+      const win = arr.slice(i - swingWindow, i + swingWindow + 1);
+      if (arr[i] === Math.max(...win)) out.push({ idx: i, val: arr[i] });
+    }
+    return out;
+  }
 
-  if (price2 < price1 && rsi2 > rsi1) return 'bullish';
-  if (price2 > price1 && rsi2 < rsi1) return 'bearish';
+  // Pre-compute RSI series for a given period
+  function rsiSeries(arr: number[], p: number): (number | null)[] {
+    return arr.map((_, i) => (i < p ? null : rsi(arr.slice(0, i + 1), p)));
+  }
+
+  function checkDivergence(rsiPeriod: number): 'bullish' | 'bearish' | 'none' {
+    const rsiArr = rsiSeries(prices, rsiPeriod);
+    const lows   = swingLows(prices);
+    const highs  = swingHighs(prices);
+
+    if (lows.length >= 2) {
+      const a = lows[lows.length - 2];
+      const b = lows[lows.length - 1];
+      const ra = rsiArr[a.idx], rb = rsiArr[b.idx];
+      if (ra !== null && rb !== null && b.val < a.val && rb > ra) return 'bullish';
+    }
+
+    if (highs.length >= 2) {
+      const a = highs[highs.length - 2];
+      const b = highs[highs.length - 1];
+      const ra = rsiArr[a.idx], rb = rsiArr[b.idx];
+      if (ra !== null && rb !== null && b.val > a.val && rb < ra) return 'bearish';
+    }
+
+    return 'none';
+  }
+
+  const slow = checkDivergence(period);    // RSI(14) — classic, higher reliability
+  const fast = checkDivergence(9);          // RSI(9)  — crypto-optimised, faster reaction
+
+  // Both agree → strongest signal; one fires → still report it
+  if (slow !== 'none' && fast !== 'none' && slow === fast) return slow;
+  if (slow !== 'none') return slow;
+  if (fast !== 'none') return fast;
   return 'none';
 }
 
