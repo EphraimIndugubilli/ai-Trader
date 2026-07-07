@@ -74,7 +74,14 @@ export async function runCycle(): Promise<void> {
     }
   }
 
-  // 2. Pick best opportunity
+  // 2. Classify market regime — surfaced in UI and injected into AI prompt
+  const regime = classifyMarketRegime(analyses);
+  emit(
+    `Market regime: ${regime.regime.toUpperCase()} | bias=${regime.bias} | conviction=${regime.strength}% — ${regime.signals[0] ?? ''}`,
+    'step'
+  );
+
+  // 3. Pick best opportunity
   const best = selectBestOpportunity(analyses);
   if (best) {
     const cf = best.confluence;
@@ -86,7 +93,7 @@ export async function runCycle(): Promise<void> {
     emit(`Reasons: ${best.reasons.slice(0, 3).join(' · ')}`, 'data');
   }
 
-  // 3. Check if existing positions need review
+  // 4. Check if existing positions need review
   const positions = getPositions();
   if (positions.length > 0) {
     emit(`Reviewing ${positions.length} open position(s)…`, 'step');
@@ -97,7 +104,7 @@ export async function runCycle(): Promise<void> {
     }
   }
 
-  // 4. Start Langfuse trace
+  // 5. Start Langfuse trace
   const snapshot  = getSnapshot();
   const traceData = {
     cycle: cycleCount, balance: snapshot.balance,
@@ -109,7 +116,7 @@ export async function runCycle(): Promise<void> {
   };
   const trace = startCycleTrace(cycleCount, traceData);
 
-  // 5. Call AI via Vercel AI SDK + OpenRouter
+  // 6. Call AI via Vercel AI SDK + OpenRouter
   emit('Calling AI model via OpenRouter…', 'step');
   const prompt = buildPrompt(analyses, best, snapshot);
 
@@ -146,14 +153,14 @@ export async function runCycle(): Promise<void> {
       },
     });
 
-    // 6. Stream reasoning to UI
+    // 7. Stream reasoning to UI
     const lines = responseText.split('\n').filter(l => l.trim());
     for (const line of lines) {
       const type = classifyLine(line);
       emit(line, type);
     }
 
-    // 7. Extract & validate decision
+    // 8. Extract & validate decision
     const rawDecision = extractJSON(responseText);
 
     // Hallucination detection via Langfuse
@@ -179,7 +186,7 @@ export async function runCycle(): Promise<void> {
       return;
     }
 
-    // 8. Execute decision
+    // 9. Execute decision
     await executeDecision(rawDecision as AIDecision, best, trace.traceId);
     closeTrace(trace.traceId, { action: rawDecision?.action ?? 'unknown' });
 
@@ -395,6 +402,76 @@ function classifyLine(line: string): AIThinkStep['type'] {
   return 'data';
 }
 
+// ── Market regime classifier ──────────────────────────────────────
+// 2026 quant standard: strategy selection and position sizing must adapt to
+// the current market regime. Trend-following entries fail in ranging markets;
+// mean-reversion entries fail in trending ones. Classifying regime before
+// calling the AI prevents category errors in the decision layer.
+//
+// Regime = trending | ranging | volatile, determined by ADX consensus,
+// ATR-to-price ratio, and BB-squeeze prevalence across all analysed pairs.
+type MarketRegime = {
+  regime:   'trending' | 'ranging' | 'volatile';
+  bias:     'bullish' | 'bearish' | 'neutral';
+  strength: number;  // 0-100 conviction in the regime label
+  signals:  string[];
+};
+
+function classifyMarketRegime(analyses: IndicatorResult[]): MarketRegime {
+  const valid = analyses.filter(a => a.adx);
+  const signals: string[] = [];
+
+  // ADX consensus: >25 = trend, <20 = range
+  const trendingCount = valid.filter(a => (a.adx?.adx ?? 0) > 25).length;
+  const rangingCount  = valid.filter(a => (a.adx?.adx ?? 0) < 20).length;
+  const avgAdx = valid.length
+    ? valid.reduce((s, a) => s + (a.adx?.adx ?? 0), 0) / valid.length
+    : 0;
+
+  // BB-squeeze prevalence: active squeeze = compression before breakout (ranging-to-volatile)
+  const squeezeCount = analyses.filter(a => a.bbSqueeze?.squeeze).length;
+  const squeezePct   = analyses.length ? squeezeCount / analyses.length : 0;
+
+  // ATR-to-price ratio: measures raw volatility normalised for price level
+  const atrRatios = analyses
+    .filter(a => a.atr && a.current > 0)
+    .map(a => (a.atr! / a.current) * 100);
+  const avgAtrPct = atrRatios.length
+    ? atrRatios.reduce((s, r) => s + r, 0) / atrRatios.length
+    : 0;
+
+  // Directional bias from score distribution
+  const bullishCount = analyses.filter(a => a.score > 5).length;
+  const bearishCount = analyses.filter(a => a.score < -5).length;
+  const bias: MarketRegime['bias'] =
+    bullishCount > bearishCount * 1.5 ? 'bullish'
+    : bearishCount > bullishCount * 1.5 ? 'bearish'
+    : 'neutral';
+
+  // Regime determination: volatile > trending > ranging priority
+  let regime: MarketRegime['regime'];
+  let strength: number;
+
+  if (avgAtrPct > 1.5 || squeezePct > 0.4) {
+    regime   = 'volatile';
+    strength = Math.min(100, Math.round(avgAtrPct * 40 + squeezePct * 60));
+    if (avgAtrPct > 1.5)   signals.push(`High ATR/price ratio ${avgAtrPct.toFixed(2)}% across pairs`);
+    if (squeezePct > 0.4)  signals.push(`BB squeeze active on ${Math.round(squeezePct * 100)}% of pairs`);
+  } else if (trendingCount > rangingCount && avgAdx > 22) {
+    regime   = 'trending';
+    strength = Math.min(100, Math.round(avgAdx * 2.5));
+    signals.push(`ADX avg ${avgAdx.toFixed(1)} — ${trendingCount}/${valid.length} pairs trending`);
+    if (bias !== 'neutral') signals.push(`Directional bias: ${bias} (${bullishCount}B/${bearishCount}Be signals)`);
+  } else {
+    regime   = 'ranging';
+    strength = Math.min(100, Math.round((rangingCount / Math.max(valid.length, 1)) * 100));
+    signals.push(`ADX avg ${avgAdx.toFixed(1)} — ${rangingCount}/${valid.length} pairs sub-20 ADX`);
+    if (squeezePct > 0.2) signals.push(`Mild BB compression on ${Math.round(squeezePct * 100)}% of pairs — watch for breakout`);
+  }
+
+  return { regime, bias, strength, signals };
+}
+
 // ── System prompt ─────────────────────────────────────────────────
 const SYSTEM_PROMPT = `You are an expert crypto trading AI specializing in Hyperliquid perpetuals.
 You analyze technical indicators and perp-specific metrics (funding rates, OI, mark/index spread).
@@ -433,7 +510,19 @@ function buildPrompt(
 
   const perpStr = getMarketSummaryForAI();
 
+  // Market regime classification — 2026 quant standard: the AI must know
+  // whether the market is trending, ranging, or volatile before sizing and
+  // selecting entries, as optimal strategy differs sharply by regime.
+  const regimeInfo = classifyMarketRegime(analyses);
+  const regimeStr =
+    `REGIME: ${regimeInfo.regime.toUpperCase()} | bias=${regimeInfo.bias} | ` +
+    `conviction=${regimeInfo.strength}% | ` +
+    regimeInfo.signals.join(' · ');
+
   return `PORTFOLIO: balance=$${snapshot.balance.toFixed(2)} | value=$${snapshot.portfolioValue.toFixed(2)} | P&L=${snapshot.totalPnL >= 0 ? '+' : ''}$${snapshot.totalPnL.toFixed(2)} | winRate=${snapshot.winRate ?? 'N/A'}%
+
+MARKET REGIME: ${regimeStr}
+${regimeInfo.regime === 'ranging' ? '→ Prefer mean-reversion entries; tighten take-profits; avoid trend-following breakouts.' : ''}${regimeInfo.regime === 'trending' ? '→ Favour momentum entries in trend direction; trail stops aggressively; avoid counter-trend fades.' : ''}${regimeInfo.regime === 'volatile' ? '→ Reduce position sizes; widen stops to avoid noise whipsaws; wait for squeeze breakout confirmation.' : ''}
 
 OPEN POSITIONS:
 ${posStr}
