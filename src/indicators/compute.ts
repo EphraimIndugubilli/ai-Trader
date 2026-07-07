@@ -9,6 +9,7 @@ import {
 import { getPrices, getVolume } from '../market/engine';
 import { cci } from './cci';
 import { adx as computeADX } from './adx';
+import { keltner } from './keltner';
 
 // ── Williams %R ────────────────────────────────────────────────────
 export function williamsR(prices: number[], period = 14): number | null {
@@ -467,6 +468,7 @@ export function compute(symbol: string): IndicatorResult | null {
   const vwapVal   = vwap(prices, volume);
   const stVal     = superTrend(prices);
   const efiVal    = elderForceIndex(prices, volume);
+  const keltnerVal = keltner(prices);
   const current   = prices[prices.length - 1];
 
   let score = 0;
@@ -617,6 +619,21 @@ export function compute(symbol: string): IndicatorResult | null {
       score -= 9; reasons.push(`VWAP: price above +1σ (${vwapVal.deviation.toFixed(2)}% from VWAP) — supply zone`);
     } else {
       score *= 0.95; reasons.push(`VWAP: price near fair value (${vwapVal.deviation > 0 ? '+' : ''}${vwapVal.deviation.toFixed(2)}%) — no VWAP edge`);
+    }
+  }
+
+  // Keltner Channel breakout signal — ATR-based envelope around a 20-period EMA.
+  // Price outside the channels flags a volatility breakout; inside the channel
+  // near the EMA shows balanced momentum with no directional edge.
+  if (keltnerVal) {
+    if (current > keltnerVal.upper) {
+      score -= 12; reasons.push(`Keltner upper breakout (price ${current.toFixed(4)} > ${keltnerVal.upper.toFixed(4)}) — short-term overbought extension`);
+    } else if (current < keltnerVal.lower) {
+      score += 12; reasons.push(`Keltner lower breakout (price ${current.toFixed(4)} < ${keltnerVal.lower.toFixed(4)}) — short-term oversold, mean-reversion setup`);
+    } else if (current > keltnerVal.middle) {
+      score += 5; reasons.push(`Price above Keltner midline (EMA ${keltnerVal.middle.toFixed(4)}) — bullish channel bias`);
+    } else {
+      score -= 5; reasons.push(`Price below Keltner midline (EMA ${keltnerVal.middle.toFixed(4)}) — bearish channel bias`);
     }
   }
 
