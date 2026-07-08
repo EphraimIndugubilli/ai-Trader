@@ -174,6 +174,24 @@ export interface VWAPResult {
   zone: 'above_2sd' | 'above_1sd' | 'near_vwap' | 'below_1sd' | 'below_2sd';
 }
 
+// ── Fibonacci ─────────────────────────────────────────────────────
+export interface FibonacciLevel {
+  ratio: number;       // e.g. 0.618
+  label: string;       // e.g. "61.8%"
+  price: number;       // absolute price at this level
+}
+
+export interface FibonacciResult {
+  swingHigh: number;
+  swingLow: number;
+  levels: FibonacciLevel[];
+  retracementPct: number;   // how far current price has retraced from swing high (0–100)
+  nearestSupport: FibonacciLevel | null;
+  nearestResistance: FibonacciLevel | null;
+  inGoldenZone: boolean;    // price within 38.2%–61.8% retrace band
+  nearLevel: FibonacciLevel | null;  // closest level within ATR threshold
+}
+
 export type SuperTrendDirection = 'bullish' | 'bearish';
 
 export interface SuperTrendResult {
@@ -203,6 +221,7 @@ export interface IndicatorResult {
   adx: ADXResult | null;
   vwap: VWAPResult | null;
   superTrend: SuperTrendResult | null;
+  fibonacci: FibonacciResult | null;
   sr: SupportResistance;
   trend: number;
   roc: number | null;

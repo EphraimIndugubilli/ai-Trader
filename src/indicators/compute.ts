@@ -5,7 +5,9 @@ import {
   IndicatorResult, MACDResult, BollingerBands,
   StochasticResult, SupportResistance, VolumeSignal, AIAction, OBVResult,
   ConfluenceResult, ADXResult, BBSqueezeResult, VWAPResult, SuperTrendResult,
+  FibonacciResult,
 } from '../types/index';
+import { fibonacci as computeFibonacci } from './fibonacci';
 import { getPrices, getVolume } from '../market/engine';
 import { cci } from './cci';
 import { adx as computeADX } from './adx';
@@ -469,6 +471,7 @@ export function compute(symbol: string): IndicatorResult | null {
   const stVal     = superTrend(prices);
   const efiVal    = elderForceIndex(prices, volume);
   const keltnerVal = keltner(prices);
+  const fibVal    = computeFibonacci(prices, 100, atrVal);
   const current   = prices[prices.length - 1];
 
   let score = 0;
@@ -693,6 +696,35 @@ export function compute(symbol: string): IndicatorResult | null {
     reasons.push(`Confluence weak (${confluenceVal.score}/3 indicators agree) — signal dampened`);
   }
 
+  // ── Fibonacci Retracement Confluence ─────────────────────────────
+  // 2026 crypto research: "Fibonacci levels are indispensable — the 61.8%
+  // golden ratio is the most reliable reversal zone." Boost signal strength
+  // when price is in the golden zone (38.2%–61.8% retracement) since that
+  // band represents institutional re-entry after a healthy pullback.
+  if (fibVal) {
+    if (fibVal.inGoldenZone) {
+      if (score > 0) {
+        score = Math.min(100, score * 1.12);
+        reasons.push(`Fib golden zone (38.2%–61.8% retracement at ${fibVal.retracementPct}%) — institutional re-entry band supports bullish setup`);
+      } else {
+        score = Math.max(-100, score * 1.12);
+        reasons.push(`Fib golden zone (${fibVal.retracementPct}% retrace) — breakdown through re-entry band strengthens bearish bias`);
+      }
+    }
+    if (fibVal.nearLevel) {
+      const lbl = fibVal.nearLevel.label;
+      if (fibVal.nearLevel.ratio === 0.618) {
+        reasons.push(`Price touching Fibonacci 61.8% level (${fibVal.nearLevel.price.toFixed(4)}) — the golden ratio, highest-probability reversal`);
+        score += score > 0 ? 8 : -8;
+      } else if (fibVal.nearLevel.ratio === 0.5) {
+        reasons.push(`Price at Fibonacci 50% level (${fibVal.nearLevel.price.toFixed(4)}) — psychological pivot, watch for direction confirmation`);
+      } else {
+        reasons.push(`Price near Fibonacci ${lbl} level (${fibVal.nearLevel.price.toFixed(4)}) — key S/R zone`);
+        score += score > 0 ? 5 : -5;
+      }
+    }
+  }
+
   score = Math.max(-100, Math.min(100, score));
 
   // Action and confidence are derived from the fully-adjusted score so that
@@ -719,7 +751,7 @@ export function compute(symbol: string): IndicatorResult | null {
     symbol, current,
     rsi: rsiVal, rsiFast: rsiFastVal, macd: macdVal, bb, bbSqueeze: bbSqueezeVal,
     ema9: ema9Val, ema21: ema21Val, ema50: ema50Val,
-    atr: atrVal, stoch, volSig, obv: obvVal, adx: adxVal, vwap: vwapVal, superTrend: stVal, sr, trend,
+    atr: atrVal, stoch, volSig, obv: obvVal, adx: adxVal, vwap: vwapVal, superTrend: stVal, fibonacci: fibVal, sr, trend,
     roc: rocVal, cci: cciVal, efi: efiVal,
     divergence: diverg,
     confluence: confluenceVal,
