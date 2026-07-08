@@ -661,12 +661,6 @@ export function compute(symbol: string): IndicatorResult | null {
 
   score = Math.max(-100, Math.min(100, score));
 
-  let action: AIAction = 'HOLD';
-  let confidence = 0;
-  if      (score >= 35)  { action = 'BUY';  confidence = Math.min(95, 40 + score * 0.55); }
-  else if (score <= -35) { action = 'SELL'; confidence = Math.min(95, 40 + Math.abs(score) * 0.55); }
-  else                   { action = 'HOLD'; confidence = Math.max(20, 50 - Math.abs(score)); }
-
   const confluenceVal = computeConfluence(prices, volume);
 
   // Elder's Force Index — volume-weighted momentum confirmation.
@@ -700,6 +694,14 @@ export function compute(symbol: string): IndicatorResult | null {
   }
 
   score = Math.max(-100, Math.min(100, score));
+
+  // Action and confidence are derived from the fully-adjusted score so that
+  // EFI and confluence adjustments (above) are reflected in the final decision.
+  let action: AIAction = 'HOLD';
+  let confidence = 0;
+  if      (score >= 35)  { action = 'BUY';  confidence = Math.min(95, 40 + score * 0.55); }
+  else if (score <= -35) { action = 'SELL'; confidence = Math.min(95, 40 + Math.abs(score) * 0.55); }
+  else                   { action = 'HOLD'; confidence = Math.max(20, 50 - Math.abs(score)); }
 
   const atrFactor = atrVal ?? current * 0.01;
   const target = action === 'BUY'
