@@ -10,5 +10,6 @@
   "src/utils/arrays.ts",
   "src/indicators/keltner.ts",
   "src/indicators/mfi.ts",
-  "src/risk/exposure.ts"
+  "src/risk/exposure.ts",
+  "src/utils/time.ts"
 ]
