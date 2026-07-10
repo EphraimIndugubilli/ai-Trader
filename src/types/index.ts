@@ -192,6 +192,15 @@ export interface FibonacciResult {
   nearLevel: FibonacciLevel | null;  // closest level within ATR threshold
 }
 
+// ── Parabolic SAR ────────────────────────────────────────────────
+export interface ParabolicSARResult {
+  value: number;
+  direction: 'bullish' | 'bearish';
+  distPct: number;
+  af: number;
+  justFlipped: boolean;
+}
+
 export type SuperTrendDirection = 'bullish' | 'bearish';
 
 export interface SuperTrendResult {
@@ -221,6 +230,7 @@ export interface IndicatorResult {
   adx: ADXResult | null;
   vwap: VWAPResult | null;
   superTrend: SuperTrendResult | null;
+  psar: ParabolicSARResult | null;
   fibonacci: FibonacciResult | null;
   sr: SupportResistance;
   trend: number;

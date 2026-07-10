@@ -5,13 +5,14 @@ import {
   IndicatorResult, MACDResult, BollingerBands,
   StochasticResult, SupportResistance, VolumeSignal, AIAction, OBVResult,
   ConfluenceResult, ADXResult, BBSqueezeResult, VWAPResult, SuperTrendResult,
-  FibonacciResult,
+  FibonacciResult, ParabolicSARResult,
 } from '../types/index';
 import { fibonacci as computeFibonacci } from './fibonacci';
 import { getPrices, getVolume } from '../market/engine';
 import { cci } from './cci';
 import { adx as computeADX } from './adx';
 import { keltner } from './keltner';
+import { parabolicSAR } from './psar';
 
 // ── Williams %R ────────────────────────────────────────────────────
 export function williamsR(prices: number[], period = 14): number | null {
@@ -472,6 +473,7 @@ export function compute(symbol: string): IndicatorResult | null {
   const efiVal    = elderForceIndex(prices, volume);
   const keltnerVal = keltner(prices);
   const fibVal    = computeFibonacci(prices, 100, atrVal);
+  const psarVal   = parabolicSAR(prices);
   const current   = prices[prices.length - 1];
 
   let score = 0;
@@ -684,6 +686,27 @@ export function compute(symbol: string): IndicatorResult | null {
     }
   }
 
+  // Parabolic SAR — trailing stop signal
+  // When SAR flips direction (justFlipped) it's a strong trend-change signal;
+  // otherwise it simply confirms the ongoing trend and scales score modestly.
+  if (psarVal) {
+    if (psarVal.justFlipped) {
+      if (psarVal.direction === 'bullish') {
+        score += 20; reasons.push(`Parabolic SAR flipped bullish (SAR ${psarVal.value.toFixed(4)}, +${psarVal.distPct}%) — fresh buy signal`);
+      } else {
+        score -= 20; reasons.push(`Parabolic SAR flipped bearish (SAR ${psarVal.value.toFixed(4)}, ${psarVal.distPct}%) — fresh sell signal`);
+      }
+    } else if (psarVal.direction === 'bullish' && score > 0) {
+      score += 8; reasons.push(`Parabolic SAR bullish (SAR ${psarVal.value.toFixed(4)}, +${psarVal.distPct}%) — uptrend confirmed`);
+    } else if (psarVal.direction === 'bearish' && score < 0) {
+      score -= 8; reasons.push(`Parabolic SAR bearish (SAR ${psarVal.value.toFixed(4)}, ${psarVal.distPct}%) — downtrend confirmed`);
+    } else if (psarVal.direction === 'bullish' && score < 0) {
+      score += 4; reasons.push(`Parabolic SAR still bullish (${psarVal.distPct}%) despite bearish bias — conflicting signals`);
+    } else if (psarVal.direction === 'bearish' && score > 0) {
+      score -= 4; reasons.push(`Parabolic SAR still bearish (${psarVal.distPct}%) despite bullish bias — conflicting signals`);
+    }
+  }
+
   // Confluence gate: boost score when all 3 signals agree; dampen when mixed
   if (confluenceVal.gated && confluenceVal.direction === 'bullish' && score > 0) {
     score = Math.min(100, score * 1.15);
@@ -751,7 +774,7 @@ export function compute(symbol: string): IndicatorResult | null {
     symbol, current,
     rsi: rsiVal, rsiFast: rsiFastVal, macd: macdVal, bb, bbSqueeze: bbSqueezeVal,
     ema9: ema9Val, ema21: ema21Val, ema50: ema50Val,
-    atr: atrVal, stoch, volSig, obv: obvVal, adx: adxVal, vwap: vwapVal, superTrend: stVal, fibonacci: fibVal, sr, trend,
+    atr: atrVal, stoch, volSig, obv: obvVal, adx: adxVal, vwap: vwapVal, superTrend: stVal, psar: psarVal, fibonacci: fibVal, sr, trend,
     roc: rocVal, cci: cciVal, efi: efiVal,
     divergence: diverg,
     confluence: confluenceVal,
