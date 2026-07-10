@@ -13,6 +13,7 @@ import { cci } from './cci';
 import { adx as computeADX } from './adx';
 import { keltner } from './keltner';
 import { parabolicSAR } from './psar';
+import { hma as computeHMA } from './hma';
 
 // ── Williams %R ────────────────────────────────────────────────────
 export function williamsR(prices: number[], period = 14): number | null {
@@ -472,6 +473,7 @@ export function compute(symbol: string): IndicatorResult | null {
   const stVal     = superTrend(prices);
   const efiVal    = elderForceIndex(prices, volume);
   const keltnerVal = keltner(prices);
+  const hmaVal    = computeHMA(prices, 20);
   const fibVal    = computeFibonacci(prices, 100, atrVal);
   const psarVal   = parabolicSAR(prices);
   const current   = prices[prices.length - 1];
@@ -770,11 +772,26 @@ export function compute(symbol: string): IndicatorResult | null {
     ? parseFloat((current + atrFactor * 1.2).toFixed(6))
     : null;
 
+  // HMA trend filter — 2026 quant research: HMA cuts EMA lag by ~half, making
+  // it the preferred trend-confirmation overlay in fast-moving perp markets.
+  // Bullish HMA slope adds to the buy signal; bearish slope adds to sell.
+  if (hmaVal != null) {
+    if (hmaVal.direction === 'bullish') {
+      score += 10;
+      reasons.push(`HMA(20) slope rising (${hmaVal.value.toFixed(4)}) — trend accelerating upward`);
+    } else {
+      score -= 10;
+      reasons.push(`HMA(20) slope falling (${hmaVal.value.toFixed(4)}) — trend decelerating`);
+    }
+  }
+
   return {
     symbol, current,
     rsi: rsiVal, rsiFast: rsiFastVal, macd: macdVal, bb, bbSqueeze: bbSqueezeVal,
     ema9: ema9Val, ema21: ema21Val, ema50: ema50Val,
-    atr: atrVal, stoch, volSig, obv: obvVal, adx: adxVal, vwap: vwapVal, superTrend: stVal, psar: psarVal, fibonacci: fibVal, sr, trend,
+    atr: atrVal, stoch, volSig, obv: obvVal, adx: adxVal, vwap: vwapVal, superTrend: stVal,
+    psar: psarVal, hma: hmaVal,
+    fibonacci: fibVal, sr, trend,
     roc: rocVal, cci: cciVal, efi: efiVal,
     divergence: diverg,
     confluence: confluenceVal,

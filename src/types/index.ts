@@ -212,6 +212,13 @@ export interface SuperTrendResult {
   multiplier: number;
 }
 
+export interface HMAResult {
+  value: number;
+  direction: 'bullish' | 'bearish';
+  slope: number;
+  period: number;
+}
+
 export interface IndicatorResult {
   symbol: string;
   current: number;
@@ -231,6 +238,7 @@ export interface IndicatorResult {
   vwap: VWAPResult | null;
   superTrend: SuperTrendResult | null;
   psar: ParabolicSARResult | null;
+  hma: HMAResult | null;
   fibonacci: FibonacciResult | null;
   sr: SupportResistance;
   trend: number;
