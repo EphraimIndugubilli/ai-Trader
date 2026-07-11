@@ -14,6 +14,7 @@ import { adx as computeADX } from './adx';
 import { keltner } from './keltner';
 import { parabolicSAR } from './psar';
 import { hma as computeHMA } from './hma';
+import { mfi as computeMFI, mfiSignal } from './mfi';
 
 // ── Williams %R ────────────────────────────────────────────────────
 export function williamsR(prices: number[], period = 14): number | null {
@@ -472,6 +473,7 @@ export function compute(symbol: string): IndicatorResult | null {
   const vwapVal   = vwap(prices, volume);
   const stVal     = superTrend(prices);
   const efiVal    = elderForceIndex(prices, volume);
+  const mfiVal    = computeMFI(prices, volume);
   const keltnerVal = keltner(prices);
   const hmaVal    = computeHMA(prices, 20);
   const fibVal    = computeFibonacci(prices, 100, atrVal);
@@ -688,6 +690,41 @@ export function compute(symbol: string): IndicatorResult | null {
     }
   }
 
+  // MFI (Money Flow Index) — volume-weighted RSI.
+  // 2026 crypto research: MFI is listed as a top-10 indicator because it
+  // catches institutional accumulation/distribution that pure-price RSI misses.
+  // A stock can rise on declining volume — RSI goes up, MFI stays flat.
+  // Agreement between RSI and MFI is a higher-conviction signal; divergence
+  // (e.g. RSI overbought but MFI neutral) damps confidence.
+  if (mfiVal !== null) {
+    const mfiSig  = mfiSignal(mfiVal);
+    const rsiBull = rsiVal !== null && rsiVal < 45;
+    const rsiBear = rsiVal !== null && rsiVal > 55;
+    if (mfiSig === 'oversold') {
+      score += 18;
+      reasons.push(`MFI ${mfiVal} oversold — volume-weighted money flow accumulation; institutional buying pressure building`);
+      if (rsiBull) { score += 6; reasons.push(`MFI+RSI double oversold — highest-conviction reversal setup`); }
+    } else if (mfiSig === 'overbought') {
+      score -= 18;
+      reasons.push(`MFI ${mfiVal} overbought — volume-weighted distribution; institutional selling pressure elevated`);
+      if (rsiBear) { score -= 6; reasons.push(`MFI+RSI double overbought — high-conviction distribution signal`); }
+    } else if (mfiVal < 40) {
+      score += 8;
+      reasons.push(`MFI ${mfiVal} below 40 — negative money flow fading, potential accumulation`);
+    } else if (mfiVal > 60) {
+      score -= 8;
+      reasons.push(`MFI ${mfiVal} above 60 — positive money flow stretched, watch for distribution`);
+    }
+    // Divergence: price direction vs MFI direction
+    if (score > 0 && mfiSig === 'overbought') {
+      score *= 0.88;
+      reasons.push(`MFI overbought contradicts bullish bias — volume not confirming price, confidence dampened`);
+    } else if (score < 0 && mfiSig === 'oversold') {
+      score *= 0.88;
+      reasons.push(`MFI oversold contradicts bearish bias — selling exhaustion, confidence dampened`);
+    }
+  }
+
   // Parabolic SAR — trailing stop signal
   // When SAR flips direction (justFlipped) it's a strong trend-change signal;
   // otherwise it simply confirms the ongoing trend and scales score modestly.
@@ -792,7 +829,7 @@ export function compute(symbol: string): IndicatorResult | null {
     atr: atrVal, stoch, volSig, obv: obvVal, adx: adxVal, vwap: vwapVal, superTrend: stVal,
     psar: psarVal, hma: hmaVal,
     fibonacci: fibVal, sr, trend,
-    roc: rocVal, cci: cciVal, efi: efiVal,
+    roc: rocVal, cci: cciVal, mfi: mfiVal, efi: efiVal,
     divergence: diverg,
     confluence: confluenceVal,
     score: parseFloat(score.toFixed(2)),

@@ -244,6 +244,7 @@ export interface IndicatorResult {
   trend: number;
   roc: number | null;
   cci: number | null;
+  mfi: number | null;
   divergence: 'bullish' | 'bearish' | 'none';
   efi: number | null;
   confluence: ConfluenceResult;
