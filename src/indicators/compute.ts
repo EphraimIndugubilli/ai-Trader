@@ -750,10 +750,23 @@ export function compute(symbol: string): IndicatorResult | null {
     }
   }
 
+  // HMA trend filter — 2026 quant research: HMA cuts EMA lag by ~half, making
+  // it the preferred trend-confirmation overlay in fast-moving perp markets.
+  // Bullish HMA slope adds to the buy signal; bearish slope adds to sell.
+  // Placed before the final clamp so the HMA adjustment is reflected in action/confidence.
+  if (hmaVal != null) {
+    if (hmaVal.direction === 'bullish') {
+      score += 10;
+      reasons.push(`HMA(20) slope rising (${hmaVal.value.toFixed(4)}) — trend accelerating upward`);
+    } else {
+      score -= 10;
+      reasons.push(`HMA(20) slope falling (${hmaVal.value.toFixed(4)}) — trend decelerating`);
+    }
+  }
+
   score = Math.max(-100, Math.min(100, score));
 
-  // Action and confidence are derived from the fully-adjusted score so that
-  // EFI and confluence adjustments (above) are reflected in the final decision.
+  // Action and confidence derived from fully-adjusted score (EFI, confluence, HMA all included).
   let action: AIAction = 'HOLD';
   let confidence = 0;
   if      (score >= 35)  { action = 'BUY';  confidence = Math.min(95, 40 + score * 0.55); }
@@ -771,19 +784,6 @@ export function compute(symbol: string): IndicatorResult | null {
     : action === 'SELL'
     ? parseFloat((current + atrFactor * 1.2).toFixed(6))
     : null;
-
-  // HMA trend filter — 2026 quant research: HMA cuts EMA lag by ~half, making
-  // it the preferred trend-confirmation overlay in fast-moving perp markets.
-  // Bullish HMA slope adds to the buy signal; bearish slope adds to sell.
-  if (hmaVal != null) {
-    if (hmaVal.direction === 'bullish') {
-      score += 10;
-      reasons.push(`HMA(20) slope rising (${hmaVal.value.toFixed(4)}) — trend accelerating upward`);
-    } else {
-      score -= 10;
-      reasons.push(`HMA(20) slope falling (${hmaVal.value.toFixed(4)}) — trend decelerating`);
-    }
-  }
 
   return {
     symbol, current,
