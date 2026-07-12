@@ -13,5 +13,6 @@
   "src/risk/exposure.ts",
   "src/utils/time.ts",
   "src/indicators/aroon.ts",
-  "src/indicators/momentum.ts"
+  "src/indicators/momentum.ts",
+  "src/risk/drawdown.ts"
 ]
