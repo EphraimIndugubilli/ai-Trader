@@ -21,6 +21,7 @@
       <div class="stat-pill"><span class="pill-label">Portfolio</span><span class="pill-value" id="h-portfolio">$10,000</span></div>
       <div class="stat-pill"><span class="pill-label">Total P&L</span><span class="pill-value" id="h-pnl">$0.00</span></div>
       <div class="stat-pill"><span class="pill-label">Win Rate</span><span class="pill-value" id="h-winrate">—</span></div>
+      <span id="sse-status-badge" class="badge idle" title="Stream connection status">CONNECTING…</span>
       <button class="btn-reset" id="btn-reset">↺ Reset</button>
     </div>
   </header>
@@ -169,51 +170,86 @@ let marketData = {}, portfolioData = {};
 let aiRunning = false;
 let monStats = { errors: 0, hallucinations: 0, calls: 0 };
 
-// ── SSE connection ─────────────────────────────────────────────────
-const evtSource = new EventSource('/api/stream');
+// ── SSE connection with exponential-backoff reconnect ─────────────
+// Browsers silently retry EventSource on close, but never on explicit
+// errors (CORS, auth, server crash). This wrapper detects error events,
+// closes the dead connection, and schedules a fresh one with exponential
+// backoff (1 s → 2 s → 4 s … capped at 30 s). The status badge in the
+// topbar reflects live / reconnecting state so the user knows at a glance
+// whether the pipeline feed is healthy.
+let sseSource = null;
+let sseRetryDelay = 1000;
+const SSE_MAX_DELAY = 30000;
 
-evtSource.addEventListener('connected', () => {
-  toast('Connected to pipeline stream', 'info');
-});
+function setSseStatus(connected) {
+  const badge = document.getElementById('sse-status-badge');
+  if (!badge) return;
+  badge.textContent = connected ? 'LIVE' : 'RECONNECTING…';
+  badge.className   = connected ? 'badge paper' : 'badge idle';
+}
 
-evtSource.addEventListener('tick', e => {
-  const d = JSON.parse(e.data);
-  marketData.prices = d.prices;
-  portfolioData.snapshot = d.snapshot;
-  renderMetrics(d.snapshot);
-  renderMarketList();
-  renderCurrentPrice();
-  if (priceChart) fetchAndUpdateChart();
-  renderEquityChart();
-});
+function connectSSE() {
+  if (sseSource) { try { sseSource.close(); } catch (_) {} }
 
-evtSource.addEventListener('think', e => {
-  const step = JSON.parse(e.data);
-  appendThinkLine(step.text, step.type);
-  // Count calls and hallucinations
-  if (step.type === 'exec' || step.text.includes('Calling AI')) {
-    monStats.calls++;
-    document.getElementById('mon-calls').textContent = monStats.calls;
-  }
-  if (step.text.includes('Hallucination')) {
-    monStats.hallucinations++;
-    document.getElementById('mon-halluc').textContent = monStats.hallucinations;
-  }
-});
+  sseSource = new EventSource('/api/stream');
 
-evtSource.addEventListener('stop_hit', e => {
-  const { trade, reason } = JSON.parse(e.data);
-  const label = reason === 'take_profit' ? '✅ Take Profit' : reason === 'liquidation' ? '💥 Liquidated' : '🛑 Stop Loss';
-  toast(`${label}: ${trade.name} ${trade.pnl >= 0 ? '+' : ''}$${trade.pnl.toFixed(2)}`,
-    trade.pnl >= 0 ? 'success' : 'error');
-  fetchPortfolio();
-});
+  sseSource.addEventListener('connected', () => {
+    sseRetryDelay = 1000; // reset backoff on successful handshake
+    setSseStatus(true);
+    toast('Connected to pipeline stream', 'info');
+  });
 
-evtSource.addEventListener('ai_status', e => {
-  const { running } = JSON.parse(e.data);
-  aiRunning = running;
-  updateAIStatusUI(running);
-});
+  sseSource.addEventListener('tick', e => {
+    const d = JSON.parse(e.data);
+    marketData.prices = d.prices;
+    portfolioData.snapshot = d.snapshot;
+    renderMetrics(d.snapshot);
+    renderMarketList();
+    renderCurrentPrice();
+    if (priceChart) fetchAndUpdateChart();
+    renderEquityChart();
+  });
+
+  sseSource.addEventListener('think', e => {
+    const step = JSON.parse(e.data);
+    appendThinkLine(step.text, step.type);
+    // Count calls and hallucinations
+    if (step.type === 'exec' || step.text.includes('Calling AI')) {
+      monStats.calls++;
+      document.getElementById('mon-calls').textContent = monStats.calls;
+    }
+    if (step.text.includes('Hallucination')) {
+      monStats.hallucinations++;
+      document.getElementById('mon-halluc').textContent = monStats.hallucinations;
+    }
+  });
+
+  sseSource.addEventListener('stop_hit', e => {
+    const { trade, reason } = JSON.parse(e.data);
+    const label = reason === 'take_profit' ? '✅ Take Profit' : reason === 'liquidation' ? '💥 Liquidated' : '🛑 Stop Loss';
+    toast(`${label}: ${trade.name} ${trade.pnl >= 0 ? '+' : ''}$${trade.pnl.toFixed(2)}`,
+      trade.pnl >= 0 ? 'success' : 'error');
+    fetchPortfolio();
+  });
+
+  sseSource.addEventListener('ai_status', e => {
+    const { running } = JSON.parse(e.data);
+    aiRunning = running;
+    updateAIStatusUI(running);
+  });
+
+  sseSource.onerror = () => {
+    setSseStatus(false);
+    sseSource.close();
+    appendThinkLine(`Stream disconnected — reconnecting in ${sseRetryDelay / 1000}s…`, 'step');
+    setTimeout(() => {
+      sseRetryDelay = Math.min(sseRetryDelay * 2, SSE_MAX_DELAY);
+      connectSSE();
+    }, sseRetryDelay);
+  };
+}
+
+connectSSE();
 
 // ── API helpers ────────────────────────────────────────────────────
 async function api(path, opts = {}) {
