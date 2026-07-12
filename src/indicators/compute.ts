@@ -459,6 +459,11 @@ export function compute(symbol: string): IndicatorResult | null {
   const ema9Val   = ema(prices, 9);
   const ema21Val  = ema(prices, 21);
   const ema50Val  = ema(prices, 50);
+  // EMA200 — the institutional long-term trend filter. The 2026 "Triple Threat"
+  // setup (EMA200 + MACD + Volume) uses the 200-period EMA as the primary trend
+  // regime signal: price above = bull market structure, below = bear market
+  // structure. Requires 200+ bars; null when insufficient history.
+  const ema200Val = prices.length >= 200 ? ema(prices, 200) : null;
   const atrVal    = atr(prices);
   const stoch     = stochastic(prices);
   const wR        = williamsR(prices);
@@ -520,6 +525,29 @@ export function compute(symbol: string): IndicatorResult | null {
   if (ema50Val) {
     if      (current > ema50Val && ema9Val && ema9Val > ema50Val) { score += 10; reasons.push(`Price above EMA50 (${ema50Val.toFixed(4)}) — bullish structure`); }
     else if (current < ema50Val && ema9Val && ema9Val < ema50Val) { score -= 10; reasons.push(`Price below EMA50 (${ema50Val.toFixed(4)}) — bearish structure`); }
+  }
+
+  // EMA200 — 2026 "Triple Threat" long-term regime filter. The 200-period EMA
+  // is the dividing line between bull-market and bear-market structure for
+  // institutional desks. Trading above it boosts bullish signals; trading below
+  // dampens them. A golden cross (EMA50 above EMA200) is the strongest multi-bar
+  // buy confirmation; a death cross is the inverse.
+  if (ema200Val !== null) {
+    const goldenCross = ema50Val !== null && ema50Val > ema200Val * 1.002;
+    const deathCross  = ema50Val !== null && ema50Val < ema200Val * 0.998;
+    if (current > ema200Val) {
+      if (goldenCross) {
+        score += 18; reasons.push(`EMA50 golden cross above EMA200 (${ema200Val.toFixed(4)}) — bull-market structure, highest-conviction long-term buy regime`);
+      } else {
+        score += 12; reasons.push(`Price above EMA200 (${ema200Val.toFixed(4)}) — long-term bull-market structure confirmed`);
+      }
+    } else {
+      if (deathCross) {
+        score -= 18; reasons.push(`EMA50 death cross below EMA200 (${ema200Val.toFixed(4)}) — bear-market structure, long-term sell regime`);
+      } else {
+        score -= 12; reasons.push(`Price below EMA200 (${ema200Val.toFixed(4)}) — long-term bear-market structure, fade rallies`);
+      }
+    }
   }
 
   // ROC momentum — strong positive/negative momentum confirms direction
@@ -825,7 +853,7 @@ export function compute(symbol: string): IndicatorResult | null {
   return {
     symbol, current,
     rsi: rsiVal, rsiFast: rsiFastVal, macd: macdVal, bb, bbSqueeze: bbSqueezeVal,
-    ema9: ema9Val, ema21: ema21Val, ema50: ema50Val,
+    ema9: ema9Val, ema21: ema21Val, ema50: ema50Val, ema200: ema200Val,
     atr: atrVal, stoch, volSig, obv: obvVal, adx: adxVal, vwap: vwapVal, superTrend: stVal,
     psar: psarVal, hma: hmaVal,
     fibonacci: fibVal, sr, trend,

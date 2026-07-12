@@ -230,6 +230,7 @@ export interface IndicatorResult {
   ema9: number | null;
   ema21: number | null;
   ema50: number | null;
+  ema200: number | null;
   atr: number | null;
   stoch: StochasticResult | null;
   volSig: VolumeSignal;
