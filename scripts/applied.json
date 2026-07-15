@@ -16,5 +16,6 @@
   "src/indicators/momentum.ts",
   "src/risk/drawdown.ts",
   "src/indicators/regime.ts",
-  "src/utils/signals.ts"
+  "src/utils/signals.ts",
+  "src/indicators/ichimoku.ts"
 ]
