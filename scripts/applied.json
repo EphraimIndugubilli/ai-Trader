@@ -25,5 +25,6 @@
   "src/risk/heat.ts",
   "src/indicators/cmo.ts",
   "src/utils/normalize.ts",
-  "src/indicators/dpo.ts"
+  "src/indicators/dpo.ts",
+  "src/risk/metrics.ts"
 ]
