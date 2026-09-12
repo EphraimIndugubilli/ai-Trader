@@ -15,5 +15,6 @@
   "src/indicators/aroon.ts",
   "src/indicators/momentum.ts",
   "src/risk/drawdown.ts",
-  "src/indicators/regime.ts"
+  "src/indicators/regime.ts",
+  "src/utils/signals.ts"
 ]
