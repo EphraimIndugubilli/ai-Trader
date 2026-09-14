@@ -17,5 +17,6 @@
   "src/risk/drawdown.ts",
   "src/indicators/regime.ts",
   "src/utils/signals.ts",
-  "src/indicators/ichimoku.ts"
+  "src/indicators/ichimoku.ts",
+  "src/risk/sizing.ts"
 ]
