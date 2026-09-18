@@ -21,5 +21,6 @@
   "src/risk/sizing.ts",
   "src/indicators/pivot.ts",
   "src/utils/stats.ts",
-  "src/indicators/dema.ts"
+  "src/indicators/dema.ts",
+  "src/risk/heat.ts"
 ]
