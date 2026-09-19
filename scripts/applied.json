@@ -22,5 +22,6 @@
   "src/indicators/pivot.ts",
   "src/utils/stats.ts",
   "src/indicators/dema.ts",
-  "src/risk/heat.ts"
+  "src/risk/heat.ts",
+  "src/indicators/cmo.ts"
 ]
