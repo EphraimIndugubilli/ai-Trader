@@ -24,5 +24,6 @@
   "src/indicators/dema.ts",
   "src/risk/heat.ts",
   "src/indicators/cmo.ts",
-  "src/utils/normalize.ts"
+  "src/utils/normalize.ts",
+  "src/indicators/dpo.ts"
 ]
