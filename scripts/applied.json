@@ -5,5 +5,6 @@
   "src/indicators/obv.ts",
   "src/indicators/roc.ts",
   "src/utils/formatters.ts",
-  "src/risk/limits.ts"
+  "src/risk/limits.ts",
+  "src/indicators/vwap.ts"
 ]
