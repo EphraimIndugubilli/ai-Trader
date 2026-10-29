@@ -2,5 +2,6 @@
   "src/utils/math.ts",
   "src/indicators/cci.ts",
   "src/indicators/adx.ts",
-  "src/indicators/obv.ts"
+  "src/indicators/obv.ts",
+  "src/indicators/roc.ts"
 ]
