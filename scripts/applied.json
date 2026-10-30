@@ -3,5 +3,6 @@
   "src/indicators/cci.ts",
   "src/indicators/adx.ts",
   "src/indicators/obv.ts",
-  "src/indicators/roc.ts"
+  "src/indicators/roc.ts",
+  "src/utils/formatters.ts"
 ]
