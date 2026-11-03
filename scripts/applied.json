@@ -7,5 +7,6 @@
   "src/utils/formatters.ts",
   "src/risk/limits.ts",
   "src/indicators/vwap.ts",
-  "src/utils/arrays.ts"
+  "src/utils/arrays.ts",
+  "src/indicators/keltner.ts"
 ]
