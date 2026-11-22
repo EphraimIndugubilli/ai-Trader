@@ -26,5 +26,6 @@
   "src/indicators/cmo.ts",
   "src/utils/normalize.ts",
   "src/indicators/dpo.ts",
-  "src/risk/metrics.ts"
+  "src/risk/metrics.ts",
+  "src/indicators/tema.ts"
 ]
